@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, User, Copy, Check, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bot, Copy, Check, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { useAuth } from '../contexts/AuthContext';
 

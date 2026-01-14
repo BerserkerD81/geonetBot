@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 
 interface User {
   id: string;
@@ -23,22 +23,38 @@ const MOCK_USERS = [
 ];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  // Check localStorage on mount
-  useEffect(() => {
+  const [user, setUser] = useState<User | null>(() => {
     const storedUser = localStorage.getItem('currentUser');
     if (storedUser) {
       try {
         const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
-        setIsAuthenticated(true);
+        return parsedUser;
       } catch (error) {
         console.error('Error parsing stored user:', error);
         localStorage.removeItem('currentUser');
       }
     }
+    return null;
+  });
+  const isAuthenticated = !!user;
+
+  // Sync user from localStorage changes (e.g., across tabs)
+  useEffect(() => {
+    function handleStorage(e: StorageEvent) {
+      if (e.key === 'currentUser') {
+        try {
+          const storedUser = e.newValue;
+          const parsedUser = storedUser ? JSON.parse(storedUser) : null;
+          setUser(parsedUser);
+        } catch (error) {
+          console.error('Error parsing stored user:', error);
+          localStorage.removeItem('currentUser');
+          setUser(null);
+        }
+      }
+    }
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
   const login = async (username: string, password: string): Promise<boolean> => {
@@ -52,7 +68,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (foundUser) {
       const { password: _, ...userWithoutPassword } = foundUser;
       setUser(userWithoutPassword);
-      setIsAuthenticated(true);
       localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
       return true;
     }
@@ -62,7 +77,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setUser(null);
-    setIsAuthenticated(false);
     localStorage.removeItem('currentUser');
   };
 

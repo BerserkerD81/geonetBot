@@ -29,7 +29,6 @@ export function ChatSidebar({
   onNewChat,
   onDeleteChat,
   onToggleSidebar,
-  onOpenSearch
 }: ChatSidebarProps) {
   const { user, logout } = useAuth();
 

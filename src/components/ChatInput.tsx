@@ -1,7 +1,8 @@
 import { Send } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
-import { useState, KeyboardEvent } from 'react';
+import { useState } from 'react';
+import type { KeyboardEvent } from 'react';
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;

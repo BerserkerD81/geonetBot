@@ -1,4 +1,4 @@
-import { Wifi, Users, Monitor, Bot, Network, Activity, MapPin, Database } from 'lucide-react';
+import { Users, Monitor, Bot, Network, Activity, MapPin, Database } from 'lucide-react';
 
 interface EmptyChatProps {
   onSelectQuery?: (query: string) => void;
