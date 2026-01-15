@@ -1,4 +1,4 @@
-import { Plus, MessageSquare, Trash2, LogOut, User } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, LogOut, User, Shield } from 'lucide-react';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { useAuth } from '../contexts/AuthContext';
@@ -19,6 +19,7 @@ interface ChatSidebarProps {
   onDeleteChat: (id: string) => void;
   onToggleSidebar: () => void;
   onOpenSearch: () => void;
+  onOpenAdmin?: () => void;
 }
 
 export function ChatSidebar({ 
@@ -29,8 +30,9 @@ export function ChatSidebar({
   onNewChat,
   onDeleteChat,
   onToggleSidebar,
+  onOpenAdmin,
 }: ChatSidebarProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
 
   return (
     <>
@@ -54,7 +56,7 @@ export function ChatSidebar({
               className="w-full h-10 bg-transparent hover:bg-neutral-900 text-neutral-300 hover:text-white text-sm font-medium transition-all duration-200 rounded-lg border border-neutral-800/50 hover:border-neutral-700 justify-start px-3"
             >
               <Plus className="mr-2 size-4" />
-              New Chat
+              Nuevo chat
             </Button>
           </div>
 
@@ -63,7 +65,7 @@ export function ChatSidebar({
             <div className="px-2 py-3 space-y-0.5">
               {chats.length === 0 ? (
                 <div className="p-8 text-center text-neutral-600 text-xs">
-                  No conversations yet
+                  Aún no hay conversaciones
                 </div>
               ) : (
                 chats.map((chat) => (
@@ -111,12 +113,23 @@ export function ChatSidebar({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-neutral-200 truncate">
-                  {user?.username}
+                  {user?.name ? `${user.name}` : user?.email ?? 'Usuario'}
                 </div>
                 <div className="text-xs text-neutral-500 truncate">
-                  {user?.email}
+                  {isAdmin ? 'Administrador' : 'Operador'}
                 </div>
               </div>
+              {isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onOpenAdmin}
+                  className="size-8 p-0 hover:bg-neutral-800 hover:text-emerald-400 transition-all duration-200 rounded-md flex-shrink-0"
+                  title="Panel de administración"
+                >
+                  <Shield className="size-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"

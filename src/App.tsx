@@ -9,6 +9,7 @@ import { SearchModal } from './components/SearchModal';
 import { ScrollArea } from './components/ui/scroll-area';
 import {Search, PanelLeft } from 'lucide-react';
 import { Button } from './components/ui/button';
+import { AdminUserPanel } from './components/AdminUserPanel';
 
 interface Message {
   id: string;
@@ -17,6 +18,7 @@ interface Message {
   versions?: string[]; // Array of alternative versions for assistant messages
   currentVersion?: number; // Index of the currently displayed version
   timestamp?: number; // Timestamp to track new content generation
+  imageDataUrl?: string; // Optional image attached to the message (user photo)
 }
 
 interface Chat {
@@ -25,126 +27,204 @@ interface Chat {
   timestamp: string;
   preview: string;
   messages: Message[];
+  isAdminHistory?: boolean;
+  ownerUserId?: number;
 }
 
-// Mock chat history data
-const initialChats: Chat[] = [
-  {
-    id: '1',
-    title: 'Service Availability Check',
-    timestamp: '2 hours ago',
-    preview: 'Is service available in ZIP 12345?',
-    messages: [
-      {
-        id: 'm1',
-        role: 'user',
-        content: 'Is our service available in ZIP code 12345?',
-      },
-      {
-        id: 'm2',
-        role: 'assistant',
-        content: `Based on our coverage map (Zabbix API - Placeholder):\n\nZIP Code: 12345\nService Status: ✅ Available\nCoverage Type: Fiber Optic\nMax Speed: 1 Gbps\nNetwork Zone: Zone A\n\nAdditional Information:\n- Active nodes in area: 8\n- Average uptime: 99.8%\n- Estimated installation time: 3-5 business days\n\nWould you like me to check specific addresses or create a service order?`,
-      },
-    ],
-  },
-  {
-    id: '2',
-    title: 'Client Device Status',
-    timestamp: '5 hours ago',
-    preview: 'Show devices for client CL-2024-001',
-    messages: [
-      {
-        id: 'm3',
-        role: 'user',
-        content: 'Show me all devices for client ID CL-2024-001',
-      },
-      {
-        id: 'm4',
-        role: 'assistant',
-        content: `Client Information (Zabbix API - Placeholder):\n\nClient ID: CL-2024-001\nName: TechCorp Solutions\nAccount Status: Active\n\nRegistered Devices:\n\n1. Router - Cisco ASR 1001-X\n   - Status: ✅ Online\n   - Uptime: 45 days 12 hours\n   - CPU Usage: 23%\n   - Memory Usage: 41%\n   - Last Update: 2 minutes ago\n\n2. Switch - Juniper EX4300\n   - Status: ✅ Online\n   - Uptime: 45 days 12 hours\n   - Active Ports: 18/48\n   - Last Update: 2 minutes ago\n\n3. Access Point - UniFi AP-AC-Pro\n   - Status: ⚠️ Warning\n   - Uptime: 12 days 3 hours\n   - Connected Clients: 24\n   - Signal Strength: Degraded\n   - Last Update: 5 minutes ago\n\nRecommendation: Access Point #3 may need attention due to signal degradation.`,
-      },
-    ],
-  },
-  {
-    id: '3',
-    title: 'Network Monitoring Query',
-    timestamp: 'Yesterday',
-    preview: 'What is the current network status?',
-    messages: [
-      {
-        id: 'm5',
-        role: 'user',
-        content: 'What is the current status of our network in the downtown area?',
-      },
-      {
-        id: 'm6',
-        role: 'assistant',
-        content: `Network Status - Downtown Area (Zabbix API - Placeholder):\n\nOverall Status: ✅ Operational\n\nCore Infrastructure:\n- Main Router (DT-RTR-01): Online - 99.9% uptime\n- Backup Router (DT-RTR-02): Standby - Ready\n- Distribution Switch (DT-SW-01): Online - Normal load\n\nActive Connections: 1,247 clients\nBandwidth Usage: 68% (6.8 Gbps / 10 Gbps)\n\nRecent Alerts (Last 24h):\n- 3:45 AM - Minor latency spike (Resolved)\n- 11:20 AM - High bandwidth usage (Monitoring)\n\nAll systems operating within normal parameters. No immediate action required.`,
-      },
-    ],
-  },
-];
-
-// Mock responses for new messages
+// Respuestas de ejemplo para nuevos mensajes orientadas a SmartOLT
 const getMockResponse = (userMessage: string): string => {
   const lowerMessage = userMessage.toLowerCase();
 
-  if (lowerMessage.includes('available') || lowerMessage.includes('zip') || lowerMessage.includes('coverage')) {
-    return `Service Availability Check (Zabbix API - Placeholder):\n\nAnalyzing coverage for your request...\n\nStatus: ✅ Service Available\nConnection Type: Fiber Optic\nMax Speed: 1 Gbps\nEstimated Installation: 3-5 business days\n\nNetwork infrastructure in the area is fully operational with 99.8% uptime.`;
+  if (lowerMessage.includes('alta') || lowerMessage.includes('nuevo cliente') || lowerMessage.includes('instalación')) {
+    return `Asistente SmartOLT - Alta de cliente:\n\nPuedo ayudarte a validar que la instalación está lista para ser autorizada. Normalmente revisamos:\n\n1) Datos del cliente completos (nombre, documento, dirección)\n2) ONT registrada con número de serie correcto\n3) Puerto de OLT disponible y sin alarmas\n4) Potencia óptica dentro de rango\n5) Evidencias subidas (fotos de acometida, ONT y etiqueta)\n\nCuéntame qué ya tienes cargado y qué te falta, y te guío paso a paso.`;
   }
 
-  if (lowerMessage.includes('client') || lowerMessage.includes('customer')) {
-    return `Client Lookup (Zabbix API - Placeholder):\n\nSearching client database...\n\nClient found:\n- Account Status: Active\n- Service Plan: Business Premium\n- Connected Devices: 4\n- Monthly Usage: 2.3 TB\n- Account Health: Excellent\n\nAll devices are online and functioning normally.`;
+  if (lowerMessage.includes('ont') || lowerMessage.includes('olt') || lowerMessage.includes('potencia')) {
+    return `Asistente SmartOLT - Estado de ONT/OLT:\n\nDe forma típica, para revisar un cliente en SmartOLT debes comprobar:\n\n- Estado de la ONT (online/offline)\n- Potencia RX de la ONT\n- Puerto PON y posición del cliente\n- Alarmas activas en el puerto o en la ONT\n\nSi me indicas el ID de cliente, la OLT o el número de serie de la ONT, te puedo sugerir los pasos de diagnóstico que suele seguir el NOC.`;
   }
 
-  if (lowerMessage.includes('device') || lowerMessage.includes('monitor') || lowerMessage.includes('status')) {
-    return `Device Monitoring (Zabbix API - Placeholder):\n\nQuerying device status...\n\nDevice Summary:\n1. Router: ✅ Online (Uptime: 30d 14h)\n2. Switch: ✅ Online (Uptime: 30d 14h)\n3. Firewall: ✅ Online (Uptime: 15d 8h)\n\nPerformance Metrics:\n- CPU: 18% average\n- Memory: 35% used\n- Network Traffic: Normal\n\nNo critical alerts detected.`;
+  if (lowerMessage.includes('revisar') || lowerMessage.includes('validar') || lowerMessage.includes('checklist')) {
+    return `Asistente SmartOLT - Checklist de instalación:\n\nAquí tienes un checklist típico que usan los instaladores antes de autorizar el alta:\n\n- ONT energizada y con luz PON fija\n- Potencia óptica medida y dentro de rango\n- Conectores limpios y sin dobleces críticos en la fibra\n- Serie de ONT registrada en SmartOLT\n- Fotos de la instalación y del ONT subidas al sistema\n\nPuedes usar este checklist y marcar cada punto mientras haces la instalación.`;
   }
 
-  return `Thank you for your query. I'm processing your request using the Zabbix API integration.\n\nI can help you with:\n- Service availability checks\n- Client account lookups\n- Device monitoring and status\n- Network performance metrics\n- Troubleshooting assistance\n\nCould you please provide more specific details about what you'd like to check?`;
+  return `Soy tu asistente para SmartOLT y la autogestión de instalaciones.\n\nPuedo ayudarte con:\n- Altas de nuevos clientes FTTH\n- Revisión de estado de ONT y puertos de OLT\n- Validación de instalaciones antes de autorizar el servicio\n- Listas de verificación para técnicos instaladores\n\nDime qué estás haciendo (alta nueva, visita técnica, verificación de señal, etc.) y te guío paso a paso.`;
 };
 
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+
+// Títulos de chats de ejemplo antiguos que ya no deben mostrarse
+const LEGACY_CHAT_TITLES = [
+  'Service Availability Check',
+  'Client Device Status',
+  'Network Monitoring Query',
+];
+
 function ChatApp() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [chats, setChats] = useState<Chat[]>(() => {
     if (user) {
       const storedChats = localStorage.getItem(`chats_${user.id}`);
       if (storedChats) {
         try {
-          return JSON.parse(storedChats);
+          const parsedChats: Chat[] = JSON.parse(storedChats);
+          return parsedChats.filter((chat) => !LEGACY_CHAT_TITLES.includes(chat.title));
         } catch (error) {
           console.error('Error parsing stored chats:', error);
           return [];
         }
       }
-      return initialChats;
+      return [];
     }
     return [];
   });
   const [activeChat, setActiveChat] = useState<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 768);
   const [searchOpen, setSearchOpen] = useState(false);
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const retryNonceRef = useRef(0);
+  const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
+  const [scrollRequestNonce, setScrollRequestNonce] = useState(0);
+  
+  type AdminHistoryMessage = {
+    id: number;
+    role: 'user' | 'assistant';
+    content: string;
+    createdAt: string;
+    imageUrl?: string | null;
+  };
 
-  // Load chats from localStorage for current user
-  useEffect(() => {
-    if (user) {
-      const storedChats = localStorage.getItem(`chats_${user.id}`);
-      if (storedChats) {
-        try {
-          const parsedChats = JSON.parse(storedChats);
-          setChats(parsedChats);
-        } catch (error) {
-          console.error('Error parsing stored chats:', error);
-          setChats([]);
-        }
-      } else {
-        // Initialize with default chats for first time users
-        setChats(initialChats);
+  const openUserHistoryAsChat = async (
+    userInfo: { id: number; email: string; name?: string },
+    options?: { focus?: boolean; closePanel?: boolean }
+  ) => {
+    const { focus = true, closePanel = true } = options ?? {};
+
+    if (!isAdmin) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userInfo.id}/messages`, {
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('No se pudo cargar el historial de chats para admin', data.error);
+        return;
       }
+
+      const history: AdminHistoryMessage[] = data.messages ?? [];
+
+      if (history.length === 0) {
+        // Sin mensajes, no creamos chat en el sidebar
+        return;
+      }
+
+      // Ordenar por fecha por seguridad
+      const sortedHistory = [...history].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+
+      // Separar historial en "chats" por usuario usando umbral de inactividad
+      const THRESHOLD_MS = 30 * 60 * 1000; // 30 minutos
+      const groups: AdminHistoryMessage[][] = [];
+      let currentGroup: AdminHistoryMessage[] = [];
+
+      for (let i = 0; i < sortedHistory.length; i++) {
+        const msg = sortedHistory[i];
+        if (currentGroup.length === 0) {
+          currentGroup.push(msg);
+          continue;
+        }
+        const prev = currentGroup[currentGroup.length - 1];
+        const diff =
+          new Date(msg.createdAt).getTime() -
+          new Date(prev.createdAt).getTime();
+        if (diff > THRESHOLD_MS) {
+          groups.push(currentGroup);
+          currentGroup = [msg];
+        } else {
+          currentGroup.push(msg);
+        }
+      }
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+      }
+
+      const newChats: Chat[] = groups.map((group, idx) => {
+        const historyMessages: Message[] = group.map((m) => ({
+          id: `admin-${userInfo.id}-${m.id}`,
+          role: m.role,
+          content: m.content,
+          imageDataUrl: m.imageUrl ?? undefined,
+        }));
+
+        const latest = group[group.length - 1];
+        const chatId = `admin-history-${userInfo.id}-${idx + 1}`;
+
+        return {
+          id: chatId,
+          title: `Historial · ${userInfo.name ?? userInfo.email} · ${idx + 1}`,
+          timestamp: latest ? new Date(latest.createdAt).toLocaleString() : 'Sin mensajes',
+          preview: latest ? latest.content.slice(0, 80) : 'Sin mensajes registrados para este usuario',
+          messages: historyMessages,
+          isAdminHistory: true,
+          ownerUserId: userInfo.id,
+        };
+      });
+
+      setChats((prev) => {
+        // Quitar historiales anteriores de este usuario y añadir los nuevos
+        const withoutExisting = prev.filter(
+          (c) => !c.isAdminHistory || c.ownerUserId !== userInfo.id
+        );
+        return [...newChats, ...withoutExisting];
+      });
+
+      if (focus) {
+        const firstChatId = newChats[0]?.id;
+        if (firstChatId) {
+          setActiveChat(firstChatId);
+          setAnimatingMessageId(null);
+        }
+      }
+      if (closePanel) {
+        setShowAdminPanel(false);
+      }
+    } catch (error) {
+      console.error('Error al cargar historial de usuario para admin', error);
     }
-  }, [user]);
+  };
+
+  // Cuando el usuario es admin, precargar historiales de todos los usuarios como chats de solo lectura
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    const preloadAllHistories = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/admin/users`, {
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          console.error('No se pudieron cargar los usuarios para historiales de admin', data.error);
+          return;
+        }
+
+        const users = (data.users ?? []) as { id: number; email: string; name?: string }[];
+
+        await Promise.all(
+          users.map((u) =>
+            openUserHistoryAsChat(u, { focus: false, closePanel: false })
+          )
+        );
+      } catch (error) {
+        console.error('Error al precargar historiales para admin', error);
+      }
+    };
+
+    void preloadAllHistories();
+  }, [isAdmin]);
 
   // Save chats to localStorage whenever they change
   useEffect(() => {
@@ -161,8 +241,7 @@ function ChatApp() {
       const isMobile = window.innerWidth < 768;
       setSidebarCollapsed(isMobile);
     };
-    
-    checkMobile();
+
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
@@ -171,6 +250,16 @@ function ChatApp() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChat?.messages]);
+
+  // Scroll to a specific message when requested from search
+  useEffect(() => {
+    if (!scrollToMessageId) return;
+  
+    const el = document.querySelector<HTMLElement>(`[data-message-id="${scrollToMessageId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [scrollRequestNonce]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -198,21 +287,47 @@ function ChatApp() {
     }
   };
 
-  const handleSendMessage = (content: string) => {
-    if (!content.trim()) return;
+  const handleSendMessage = (content: string, imageDataUrl?: string) => {
+    if (!content.trim() && !imageDataUrl) return;
 
     const userMessage: Message = {
       id: `m${Date.now()}`,
       role: 'user',
       content,
+      imageDataUrl,
     };
 
     const assistantMessage: Message = {
       id: `m${Date.now() + 1}`,
       role: 'assistant',
-      content: getMockResponse(content),
+      content: getMockResponse(content || (imageDataUrl ? 'Foto enviada' : '')),
       timestamp: Date.now(),
     };
+
+    // Fire-and-forget logging to backend for history (best-effort)
+    if (user) {
+      void fetch(`${API_BASE}/chat/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ role: 'user', content, imageDataUrl }),
+      }).catch((err) => {
+        console.error('Error logging user message', err);
+      });
+
+      void fetch(`${API_BASE}/chat/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ role: 'assistant', content: assistantMessage.content }),
+      }).catch((err) => {
+        console.error('Error logging assistant message', err);
+      });
+    }
 
     // Mark this message for animation
     setAnimatingMessageId(assistantMessage.id);
@@ -225,19 +340,19 @@ function ChatApp() {
             ? {
                 ...chat,
                 messages: [...chat.messages, userMessage, assistantMessage],
-                preview: content.substring(0, 50),
+                preview: (content || '[Imagen enviada]').substring(0, 50),
                 timestamp: 'Just now',
               }
             : chat
         )
       );
     } else {
-      // Create new chat
+      // Crear nuevo chat
       const newChat: Chat = {
         id: `chat${Date.now()}`,
-        title: content.substring(0, 50),
-        timestamp: 'Just now',
-        preview: content.substring(0, 50),
+        title: (content || 'Chat con imagen').substring(0, 50),
+        timestamp: 'Justo ahora',
+        preview: (content || '[Imagen enviada]').substring(0, 50),
         messages: [userMessage, assistantMessage],
       };
       setChats((prev) => [newChat, ...prev]);
@@ -287,8 +402,9 @@ function ChatApp() {
         )
       );
       
-      // Mark for animation with new timestamp to force re-render
-      setAnimatingMessageId(lastAssistantMessage.id + '-' + Date.now());
+      // Mark for animation with a changing key to force re-render
+      retryNonceRef.current += 1;
+      setAnimatingMessageId(`${lastAssistantMessage.id}-${retryNonceRef.current}`);
       
       // Clear animation flag after animation completes
       setTimeout(() => {
@@ -326,8 +442,12 @@ function ChatApp() {
     );
   };
 
-  const handleSelectChat = (id: string) => {
+  const handleSelectChat = (id: string, messageId?: string) => {
     setActiveChat(id);
+    if (messageId) {
+      setScrollToMessageId(messageId);
+      setScrollRequestNonce((n) => n + 1);
+    }
     setAnimatingMessageId(null);
     
     // Auto-hide sidebar on mobile when a chat is selected
@@ -357,10 +477,17 @@ function ChatApp() {
         onDeleteChat={handleDeleteChat}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         onOpenSearch={() => setSearchOpen(true)}
+        onOpenAdmin={() => setShowAdminPanel(true)}
       />
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0 relative">
+        {showAdminPanel && (
+          <AdminUserPanel 
+            onClose={() => setShowAdminPanel(false)}
+            onOpenUserHistory={openUserHistoryAsChat}
+          />
+        )}
         {/* Header */}
         <header className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-neutral-800/50 bg-neutral-950/80 backdrop-blur-xl">
           <div className="flex items-center gap-3">
@@ -374,10 +501,10 @@ function ChatApp() {
             </Button>
             <div className="hidden sm:block">
               <h2 className="text-sm font-semibold text-white">
-                {currentChat ? currentChat.title : 'New Chat'}
+                {currentChat ? currentChat.title : 'Nuevo chat'}
               </h2>
               <p className="text-xs text-neutral-500">
-                {currentChat ? currentChat.timestamp : 'Start a conversation'}
+                {currentChat ? currentChat.timestamp : 'Comienza una conversación con el asistente de SmartOLT'}
               </p>
             </div>
           </div>
@@ -388,7 +515,7 @@ function ChatApp() {
             className="h-9 px-3 gap-2 hover:bg-neutral-800/70 rounded-lg transition-all duration-200"
           >
             <Search className="size-4 text-neutral-400" />
-            <span className="hidden sm:inline text-xs text-neutral-400">Search</span>
+            <span className="hidden sm:inline text-xs text-neutral-400">Buscar</span>
             <kbd className="hidden sm:inline-flex h-5 items-center gap-1 rounded bg-neutral-800 px-1.5 font-mono text-[10px] font-medium text-neutral-400">
               <span className="text-xs">⌘</span>K
             </kbd>
@@ -404,18 +531,20 @@ function ChatApp() {
                   animatingMessageId?.startsWith(message.id + '-');
                 
                 return (
-                  <ChatMessage 
-                    key={message.id} 
-                    role={message.role} 
-                    content={message.content}
-                    isLatest={index === currentChat.messages.length - 1 && message.role === 'assistant'}
-                    onRetry={handleRetry}
-                    shouldAnimate={animationKey}
-                    messageId={message.id}
-                    versions={message.versions}
-                    currentVersion={message.currentVersion}
-                    onVersionChange={handleVersionChange}
-                  />
+                  <div key={message.id} data-message-id={message.id}>
+                    <ChatMessage 
+                      role={message.role} 
+                      content={message.content}
+                      imageDataUrl={message.imageDataUrl}
+                      isLatest={index === currentChat.messages.length - 1 && message.role === 'assistant'}
+                      onRetry={handleRetry}
+                      shouldAnimate={animationKey}
+                      messageId={message.id}
+                      versions={message.versions}
+                      currentVersion={message.currentVersion}
+                      onVersionChange={handleVersionChange}
+                    />
+                  </div>
                 );
               })}
               <div ref={messagesEndRef} />
@@ -429,7 +558,13 @@ function ChatApp() {
 
         {/* Input */}
         <div className="flex-shrink-0">
-          <ChatInput onSendMessage={handleSendMessage} />
+          {currentChat && currentChat.isAdminHistory && isAdmin ? (
+            <div className="px-4 py-2 text-xs text-neutral-500 text-center bg-neutral-950 border-t border-neutral-800/60">
+              Vista de historial de usuario (solo lectura).
+            </div>
+          ) : (
+            <ChatInput onSendMessage={handleSendMessage} />
+          )}
         </div>
       </div>
     </div>
@@ -445,11 +580,19 @@ export default function App() {
 }
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
-  
+  const { isAuthenticated, isLoading, user } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-950 text-neutral-300 text-sm">
+        Cargando sesión...
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <LoginPage />;
   }
-  
-  return <ChatApp />;
+
+  return <ChatApp key={user?.id} />;
 }

@@ -32,7 +32,7 @@ interface SearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   chats: Chat[];
-  onSelectChat: (id: string) => void;
+  onSelectChat: (id: string, messageId?: string) => void;
 }
 
 export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModalProps) {
@@ -104,8 +104,8 @@ export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModa
 
   if (!isOpen) return null;
 
-  const handleSelect = (chatId: string) => {
-    onSelectChat(chatId);
+  const handleSelect = (result: SearchResult) => {
+    onSelectChat(result.chatId, result.messageId);
     onClose();
   };
 
@@ -147,7 +147,7 @@ export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModa
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search conversations and messages..."
+            placeholder="Buscar conversaciones y mensajes..."
             className="h-12 sm:h-14 md:h-16 pl-10 sm:pl-12 pr-10 sm:pr-12 text-sm sm:text-base bg-transparent border-0 text-white placeholder:text-neutral-500 focus-visible:ring-0"
           />
           <button
@@ -166,10 +166,10 @@ export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModa
                 <div className="p-8 sm:p-12 text-center">
                   <Search className="size-10 sm:size-12 text-neutral-700 mx-auto mb-3 sm:mb-4" />
                   <p className="text-neutral-500 text-sm">
-                    Search across all your conversations
+                    Busca en todas tus conversaciones
                   </p>
                   <p className="text-neutral-600 text-xs mt-2">
-                    Find chats by title or message content
+                    Encuentra chats por título o contenido del mensaje
                   </p>
                 </div>
               ) : searchResults.length === 0 ? (
@@ -177,9 +177,9 @@ export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModa
                   <div className="size-10 sm:size-12 rounded-full bg-neutral-800/50 flex items-center justify-center mx-auto mb-3 sm:mb-4">
                     <Search className="size-5 sm:size-6 text-neutral-600" />
                   </div>
-                  <p className="text-neutral-400 text-sm font-medium">No results found</p>
+                  <p className="text-neutral-400 text-sm font-medium">Sin resultados</p>
                   <p className="text-neutral-600 text-xs mt-1">
-                    Try a different search term
+                    Prueba con otro término de búsqueda
                   </p>
                 </div>
               ) : (
@@ -187,7 +187,7 @@ export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModa
                   {searchResults.map((result, index) => (
                     <button
                       key={`${result.chatId}-${result.messageId || 'title'}-${index}`}
-                      onClick={() => handleSelect(result.chatId)}
+                      onClick={() => handleSelect(result)}
                       className="w-full text-left p-2.5 sm:p-3 rounded-xl hover:bg-neutral-800/70 transition-all duration-200 mb-1 group"
                     >
                       <div className="flex items-start gap-2 sm:gap-3">
@@ -226,7 +226,7 @@ export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModa
                                   ? 'bg-neutral-800 text-neutral-400' 
                                   : 'bg-emerald-500/10 text-emerald-400'
                               }`}>
-                                {result.messageRole === 'user' ? 'You' : 'Assistant'}
+                                {result.messageRole === 'user' ? 'Instalador' : 'Asistente'}
                               </span>
                             </div>
                           )}
@@ -248,11 +248,11 @@ export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModa
         <div className="border-t border-neutral-800/50 px-3 sm:px-4 py-2 sm:py-2.5 md:py-3 bg-neutral-900/50 flex items-center justify-between text-xs flex-shrink-0">
           <div className="flex items-center gap-2 sm:gap-3 text-neutral-600">
             <span className="hidden sm:inline">
-              <kbd className="px-1.5 py-0.5 bg-neutral-800 rounded text-neutral-500 font-medium">ESC</kbd> to close
+              <kbd className="px-1.5 py-0.5 bg-neutral-800 rounded text-neutral-500 font-medium">ESC</kbd> para cerrar
             </span>
             {searchResults.length > 0 && (
               <span className="text-neutral-500 text-[10px] sm:text-xs">
-                {searchResults.length} {searchResults.length === 1 ? 'result' : 'results'}
+                {searchResults.length} {searchResults.length === 1 ? 'resultado' : 'resultados'}
               </span>
             )}
           </div>

@@ -8,39 +8,39 @@ export function EmptyChat({ onSelectQuery }: EmptyChatProps) {
   const exampleQueries = [
     {
       icon: MapPin,
-      title: 'Check Service Coverage',
-      query: 'Is our service available in ZIP code 90210?',
-      description: 'Verify coverage and network availability'
+      title: 'Verificar cobertura y factibilidad',
+      query: '¿Puedo dar de alta un cliente nuevo en la zona centro con SmartOLT?',
+      description: 'Revisa si la zona y el puerto OLT están disponibles'
     },
     {
       icon: Users,
-      title: 'Search Client Account',
-      query: 'Show me all devices for client ID CL-2024-001',
-      description: 'View client info and connected devices'
+      title: 'Revisar cuenta de cliente',
+      query: 'Muéstrame el estado de la ONT del cliente con ID CL-2024-001',
+      description: 'Consulta resumen de cliente, ONT y puerto de OLT'
     },
     {
       icon: Monitor,
-      title: 'Monitor Device Status',
-      query: 'What is the current status of router RT-001?',
-      description: 'Check device health and metrics'
+      title: 'Estado de ONT',
+      query: '¿La ONT del cliente está en línea y con buena potencia óptica?',
+      description: 'Comprueba si la ONT responde correctamente en la OLT'
     },
     {
       icon: Network,
-      title: 'Network Performance',
-      query: 'Show me the network status in the downtown area',
-      description: 'View bandwidth and uptime stats'
+      title: 'Estado de puerto OLT',
+      query: 'Muéstrame el estado del puerto PON 1/1/8 y sus ONTs asociadas',
+      description: 'Revisa alarmas, potencia y cantidad de clientes conectados'
     },
     {
       icon: Activity,
-      title: 'Recent Alerts',
-      query: 'Show me all critical alerts from the last 24 hours',
-      description: 'Monitor system alerts and incidents'
+      title: 'Instalaciones pendientes de autorizar',
+      query: 'Enséñame las instalaciones pendientes de evidencia para autorizar el alta',
+      description: 'Controla las órdenes donde aún faltan fotos o datos'
     },
     {
       icon: Database,
-      title: 'Infrastructure Overview',
-      query: 'Give me a summary of all active network nodes',
-      description: 'View complete infrastructure status'
+      title: 'Checklist de instalación',
+      query: 'Dame un checklist para que el instalador valide la instalación antes de autorizar el alta',
+      description: 'Guía al técnico con pasos claros en terreno'
     },
   ];
 
@@ -54,17 +54,17 @@ export function EmptyChat({ onSelectQuery }: EmptyChatProps) {
             <Bot className="size-8 text-white relative z-10" />
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight bg-gradient-to-br from-white to-neutral-300 bg-clip-text text-transparent">
-            ISP Assistant
+            Asistente SmartOLT
           </h1>
           <p className="text-neutral-400 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
-            AI-powered network monitoring with Zabbix integration
+            Ayuda al instalador a autogestionar altas, validar instalaciones y revisar el estado de ONT/OLT en tiempo real
           </p>
         </div>
 
         {/* Example Query Templates */}
         <div className="space-y-3">
           <h2 className="text-xs font-semibold text-neutral-500 px-1 tracking-wide uppercase">
-            Quick Start
+            Comienza rápido
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {exampleQueries.map((example, index) => {
@@ -101,7 +101,7 @@ export function EmptyChat({ onSelectQuery }: EmptyChatProps) {
         <div className="text-center pt-4 border-t border-neutral-800/50">
           <p className="text-xs text-neutral-600 flex items-center justify-center gap-2">
             <span className="inline-block size-1.5 bg-emerald-500 rounded-full animate-pulse shadow-sm shadow-emerald-500/50"></span>
-            Connected to Zabbix • Real-time Intelligence
+            Integrado con SmartOLT • Pensado para instaladores en terreno
           </p>
         </div>
       </div>

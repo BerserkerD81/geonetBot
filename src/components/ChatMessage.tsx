@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
+  imageDataUrl?: string;
   isLatest?: boolean;
   onRetry?: () => void;
   shouldAnimate?: boolean;
@@ -18,6 +19,7 @@ interface ChatMessageProps {
 export function ChatMessage({ 
   role, 
   content, 
+  imageDataUrl,
   isLatest = false, 
   onRetry,
   shouldAnimate = false,
@@ -27,6 +29,7 @@ export function ChatMessage({
   onVersionChange
 }: ChatMessageProps) {
   const { user } = useAuth();
+  const authUser = user as { username?: string | null; displayName?: string | null; email?: string | null } | null;
   const isUser = role === 'user';
   const [copied, setCopied] = useState(false);
 
@@ -101,10 +104,19 @@ export function ChatMessage({
             /* User message with username */
             <>
               <div className="text-xs text-neutral-500 mb-1.5 mr-1 font-medium">
-                {user?.username || 'Tú'}
+                {authUser?.username ?? authUser?.displayName ?? authUser?.email ?? 'Tú'}
               </div>
               <div className="inline-block max-w-[90%] sm:max-w-[85%] bg-neutral-800 text-neutral-50 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl shadow-sm text-sm sm:text-[15px] leading-[1.7] whitespace-pre-wrap break-words">
                 {displayedContent}
+                {imageDataUrl && (
+                  <div className="mt-3">
+                    <img
+                      src={imageDataUrl}
+                      alt="Imagen enviada"
+                      className="max-h-64 rounded-xl border border-neutral-700 object-contain bg-neutral-900"
+                    />
+                  </div>
+                )}
               </div>
             </>
           ) : (
@@ -113,6 +125,15 @@ export function ChatMessage({
               <div className="text-neutral-50 text-sm sm:text-[15px] leading-[1.7] whitespace-pre-wrap break-words">
                 {displayedContent}
                 {isTyping && <span className="inline-block w-1.5 h-5 bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
+                {imageDataUrl && (
+                  <div className="mt-3">
+                    <img
+                      src={imageDataUrl}
+                      alt="Imagen adjunta"
+                      className="max-h-64 rounded-xl border border-neutral-700 object-contain bg-neutral-900"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Actions */}

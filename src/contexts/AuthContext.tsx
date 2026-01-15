@@ -1,87 +1,225 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 
 interface User {
-  id: string;
-  username: string;
+  id: number;
   email: string;
+  name?: string;
+  isTwoFactorEnabled?: boolean;
+}
+
+interface LoginResult {
+  ok: boolean;
+  requires2faSetup?: boolean;
+  requires2faVerify?: boolean;
+  userId?: number;
+  error?: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string) => Promise<boolean>;
-  logout: () => void;
   isAuthenticated: boolean;
+  isLoading: boolean;
+  isAdmin: boolean;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  setup2fa: () => Promise<{ qr: string } | { error: string }>;
+  verify2faSetup: (token: string) => Promise<boolean>;
+  verify2faLogin: (userId: number, token: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock users database (para pruebas)
-const MOCK_USERS = [
-  { id: '1', username: 'admin', email: 'admin@isp.com', password: 'admin123' },
-  { id: '2', username: 'soporte', email: 'soporte@isp.com', password: 'soporte123' },
-  { id: '3', username: 'tecnico', email: 'tecnico@isp.com', password: 'tecnico123' },
-];
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    const storedUser = localStorage.getItem('currentUser');
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        return parsedUser;
-      } catch (error) {
-        console.error('Error parsing stored user:', error);
-        localStorage.removeItem('currentUser');
-      }
-    }
-    return null;
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+
   const isAuthenticated = !!user;
 
-  // Sync user from localStorage changes (e.g., across tabs)
-  useEffect(() => {
-    function handleStorage(e: StorageEvent) {
-      if (e.key === 'currentUser') {
-        try {
-          const storedUser = e.newValue;
-          const parsedUser = storedUser ? JSON.parse(storedUser) : null;
-          setUser(parsedUser);
-        } catch (error) {
-          console.error('Error parsing stored user:', error);
-          localStorage.removeItem('currentUser');
-          setUser(null);
-        }
+  const refreshUser = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        setUser(null);
+        setIsAdmin(false);
+        return;
       }
+      const data = await res.json();
+      setUser(data.user ?? null);
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+      setUser(null);
+      setIsAdmin(false);
     }
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
-
-  const login = async (username: string, password: string): Promise<boolean> => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const foundUser = MOCK_USERS.find(
-      u => u.username === username && u.password === password
-    );
-
-    if (foundUser) {
-      const { password: _, ...userWithoutPassword } = foundUser;
-      setUser(userWithoutPassword);
-      localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
-      return true;
-    }
-
-    return false;
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('currentUser');
+  const refreshAdminFlag = async () => {
+    if (!user) {
+      setIsAdmin(false);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/users`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (res.ok) {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+      }
+    } catch (error) {
+      console.error('Error checking admin role:', error);
+      setIsAdmin(false);
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      setIsLoading(true);
+      await refreshUser();
+      setIsLoading(false);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      refreshAdminFlag();
+    } else {
+      setIsAdmin(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const login = async (email: string, password: string): Promise<LoginResult> => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        return { ok: false, error: data.error || 'Error al iniciar sesión' };
+      }
+
+      if (data.requires2fa_setup) {
+        return { ok: true, requires2faSetup: true, userId: data.userId };
+      }
+
+      if (data.requires2fa_verify) {
+        return { ok: true, requires2faVerify: true, userId: data.userId };
+      }
+
+      await refreshUser();
+      await refreshAdminFlag();
+      return { ok: true };
+    } catch (error) {
+      console.error('Login error:', error);
+      return { ok: false, error: 'No se pudo conectar con el servidor' };
+    }
+  };
+
+  const setup2fa = async (): Promise<{ qr: string } | { error: string }> => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/setup`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { error: data.error || 'No se pudo iniciar la configuración de 2FA' };
+      }
+      return { qr: data.qr as string };
+    } catch (error) {
+      console.error('2FA setup error:', error);
+      return { error: 'No se pudo conectar con el servidor' };
+    }
+  };
+
+  const verify2faSetup = async (token: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ token }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data.ok) return false;
+      await refreshUser();
+      await refreshAdminFlag();
+      return true;
+    } catch (error) {
+      console.error('2FA verify error:', error);
+      return false;
+    }
+  };
+
+  const verify2faLogin = async (userId: number, token: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/login/2fa`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ userId, token }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data.ok) return false;
+      await refreshUser();
+      await refreshAdminFlag();
+      return true;
+    } catch (error) {
+      console.error('2FA login verify error:', error);
+      return false;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setUser(null);
+      setIsAdmin(false);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated,
+        isLoading,
+        isAdmin,
+        login,
+        setup2fa,
+        verify2faSetup,
+        verify2faLogin,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
