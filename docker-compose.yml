@@ -14,6 +14,9 @@ services:
     build:
       context: .
       target: production
+      args:
+        # Replace with your backend public URL
+        VITE_API_URL: "190.9.56.141:3000"
     ports:
       - "8080:80"
 

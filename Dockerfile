@@ -15,6 +15,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+# Allow passing backend URL at build time for Vite
+ARG VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
 # Production stage: serve with Nginx

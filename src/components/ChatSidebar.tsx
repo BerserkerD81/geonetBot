@@ -1,4 +1,4 @@
-import { Plus, MessageSquare, Trash2, LogOut, User, Shield } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, LogOut, User, Shield, Settings } from 'lucide-react';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,6 +20,7 @@ interface ChatSidebarProps {
   onToggleSidebar: () => void;
   onOpenSearch: () => void;
   onOpenAdmin?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export function ChatSidebar({ 
@@ -31,6 +32,7 @@ export function ChatSidebar({
   onDeleteChat,
   onToggleSidebar,
   onOpenAdmin,
+  onOpenProfile,
 }: ChatSidebarProps) {
   const { user, logout, isAdmin } = useAuth();
 
@@ -128,6 +130,17 @@ export function ChatSidebar({
                   title="Panel de administración"
                 >
                   <Shield className="size-4" />
+                </Button>
+              )}
+              {!isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onOpenProfile}
+                  className="size-8 p-0 hover:bg-neutral-800 hover:text-neutral-200 transition-all duration-200 rounded-md flex-shrink-0"
+                  title="Mi cuenta"
+                >
+                  <Settings className="size-4" />
                 </Button>
               )}
               <Button

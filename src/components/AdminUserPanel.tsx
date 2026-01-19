@@ -37,11 +37,7 @@ export function AdminUserPanel({ onClose, onOpenUserHistory }: AdminUserPanelPro
   const [editPassword, setEditPassword] = useState('');
   const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
 
-  const [selectedUserForHistory, setSelectedUserForHistory] = useState<AdminUser | null>(null);
-  const [historyMessages, setHistoryMessages] = useState<
-    { id: number; role: 'user' | 'assistant'; content: string; createdAt: string; imageUrl?: string | null }[]
-  >([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  // Historial se visualizará en el área principal como chats de solo lectura.
 
   const loadUsers = async () => {
     try {
@@ -65,29 +61,7 @@ export function AdminUserPanel({ onClose, onOpenUserHistory }: AdminUserPanelPro
     }
   };
 
-  const openHistory = async (user: AdminUser) => {
-    setSelectedUserForHistory(user);
-    setHistoryMessages([]);
-    setHistoryLoading(true);
-    setError('');
-    setSuccess('');
-    try {
-      const res = await fetch(`${API_BASE}/admin/users/${user.id}/messages`, {
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'No se pudo cargar el historial de chats');
-        return;
-      }
-      setHistoryMessages(data.messages ?? []);
-    } catch (err) {
-      console.error(err);
-      setError('Error de red al cargar historial de chats');
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
+  // Eliminamos el visor interno de historial del panel de admin.
 
   useEffect(() => {
     void loadUsers();
@@ -194,10 +168,7 @@ export function AdminUserPanel({ onClose, onOpenUserHistory }: AdminUserPanelPro
       if (editUser && editUser.id === user.id) {
         setEditUser(null);
       }
-      if (selectedUserForHistory && selectedUserForHistory.id === user.id) {
-        setSelectedUserForHistory(null);
-        setHistoryMessages([]);
-      }
+      // Sin visor interno de historial, no hay estados adicionales que limpiar.
       await loadUsers();
     } catch (err) {
       console.error(err);
@@ -342,18 +313,7 @@ export function AdminUserPanel({ onClose, onOpenUserHistory }: AdminUserPanelPro
                     </span>
                   </div>
                   <div className="flex gap-1.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-3 text-[11px] text-neutral-300 hover:text-emerald-400 hover:bg-neutral-800/70"
-                      onClick={() => {
-                        void openHistory(u);
-                        onOpenUserHistory?.({ id: u.id, email: u.email, name: u.name });
-                      }}
-                    >
-                      <History className="size-3 mr-1" />
-                      Historial
-                    </Button>
+                    {/* Botón de historial eliminado por requerimiento */}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -465,70 +425,7 @@ export function AdminUserPanel({ onClose, onOpenUserHistory }: AdminUserPanelPro
           </div>
         )}
 
-        {selectedUserForHistory && (
-          <Card className="bg-neutral-900/90 border-neutral-800/90 p-4 sm:p-5 space-y-3 shadow-inner shadow-black/60">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">
-                Historial de chats de{' '}
-                <span className="text-neutral-300">
-                  {selectedUserForHistory.name || selectedUserForHistory.email}
-                </span>
-              </h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-[11px] text-neutral-300 hover:text-white hover:bg-neutral-800/80"
-                onClick={() => {
-                  setSelectedUserForHistory(null);
-                  setHistoryMessages([]);
-                }}
-              >
-                Cerrar historial
-              </Button>
-            </div>
-            {historyLoading && (
-              <p className="text-xs text-neutral-500">Cargando historial...</p>
-            )}
-            {!historyLoading && historyMessages.length === 0 && (
-              <p className="text-xs text-neutral-500">
-                No hay mensajes registrados para este usuario.
-              </p>
-            )}
-            {!historyLoading && historyMessages.length > 0 && (
-              <div className="max-h-80 overflow-y-auto space-y-2 text-xs custom-scrollbar">
-                {historyMessages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`rounded-lg border px-3 py-2 whitespace-pre-wrap ${
-                      m.role === 'user'
-                        ? 'border-neutral-700 bg-neutral-900 text-neutral-100'
-                        : 'border-emerald-700/70 bg-emerald-900/15 text-emerald-100'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold">
-                        {m.role === 'user' ? 'Usuario' : 'Asistente'}
-                      </span>
-                      <span className="text-[10px] text-neutral-500">
-                        {new Date(m.createdAt).toLocaleString()}
-                      </span>
-                    </div>
-                    <div>{m.content}</div>
-                    {m.imageUrl && (
-                      <div className="mt-2">
-                        <img
-                          src={m.imageUrl}
-                          alt="Imagen de chat"
-                          className="max-h-40 rounded-lg border border-neutral-700 object-contain bg-neutral-900"
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        )}
+        {/* Se elimina el menú de historial al final del panel de admin. */}
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ import { ScrollArea } from './components/ui/scroll-area';
 import {Search, PanelLeft } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { AdminUserPanel } from './components/AdminUserPanel';
+import { UserAccountPanel } from './components/UserAccountPanel';
 
 interface Message {
   id: string;
@@ -50,7 +51,7 @@ const getMockResponse = (userMessage: string): string => {
   return `Soy tu asistente para SmartOLT y la autogestión de instalaciones.\n\nPuedo ayudarte con:\n- Altas de nuevos clientes FTTH\n- Revisión de estado de ONT y puertos de OLT\n- Validación de instalaciones antes de autorizar el servicio\n- Listas de verificación para técnicos instaladores\n\nDime qué estás haciendo (alta nueva, visita técnica, verificación de señal, etc.) y te guío paso a paso.`;
 };
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://api:3000';
 
 // Títulos de chats de ejemplo antiguos que ya no deben mostrarse
 const LEGACY_CHAT_TITLES = [
@@ -83,6 +84,7 @@ function ChatApp() {
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showUserPanel, setShowUserPanel] = useState(false);
   const retryNonceRef = useRef(0);
   const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
   const [scrollRequestNonce, setScrollRequestNonce] = useState(0);
@@ -478,6 +480,9 @@ function ChatApp() {
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenAdmin={() => setShowAdminPanel(true)}
+        onOpenProfile={() => {
+          if (!isAdmin) setShowUserPanel(true);
+        }}
       />
 
       {/* Main Chat Area */}
@@ -486,6 +491,11 @@ function ChatApp() {
           <AdminUserPanel 
             onClose={() => setShowAdminPanel(false)}
             onOpenUserHistory={openUserHistoryAsChat}
+          />
+        )}
+        {showUserPanel && !isAdmin && (
+          <UserAccountPanel
+            onClose={() => setShowUserPanel(false)}
           />
         )}
         {/* Header */}

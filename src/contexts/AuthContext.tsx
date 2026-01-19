@@ -39,10 +39,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = !!user;
 
+  const fetchWithTimeout = async (
+    url: string,
+    options: RequestInit & { timeoutMs?: number } = {}
+  ) => {
+    const { timeoutMs = 8000, ...rest } = options;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...rest, signal: controller.signal });
+      return res;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const refreshUser = async () => {
     try {
-      const res = await fetch(`${API_BASE}/auth/me`, {
+      const res = await fetchWithTimeout(`${API_BASE}/auth/me`, {
         credentials: 'include',
+        timeoutMs: 8000,
       });
       if (!res.ok) {
         setUser(null);
@@ -64,9 +80,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/admin/users`, {
+      const res = await fetchWithTimeout(`${API_BASE}/admin/users`, {
         method: 'GET',
         credentials: 'include',
+        timeoutMs: 8000,
       });
       if (res.ok) {
         setIsAdmin(true);
@@ -80,11 +97,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    let isMounted = true;
     (async () => {
       setIsLoading(true);
-      await refreshUser();
-      setIsLoading(false);
+      // Run refresh with a hard cap to avoid indefinite loading when API is unreachable
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, 9000));
+      await Promise.race([refreshUser(), timeout]);
+      if (isMounted) setIsLoading(false);
     })();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
