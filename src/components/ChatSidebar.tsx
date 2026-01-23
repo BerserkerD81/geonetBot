@@ -8,6 +8,8 @@ interface Chat {
   title: string;
   timestamp: string;
   preview: string;
+  isAdminHistory?: boolean;
+  ownerUserId?: number;
 }
 
 interface ChatSidebarProps {
@@ -36,6 +38,67 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const { user, logout, isAdmin } = useAuth();
 
+  const personalChats = chats.filter((c) => !c.isAdminHistory);
+  const adminHistories = isAdmin ? chats.filter((c) => c.isAdminHistory) : [];
+
+  const renderChatList = (list: Chat[], emptyLabel: string) => (
+    <div className="px-2 py-3 space-y-0.5">
+      {list.length === 0 ? (
+        <div className="p-8 text-center text-neutral-600 text-xs">
+          {emptyLabel}
+        </div>
+      ) : (
+        list.map((chat) => (
+          <div
+            key={chat.id}
+            className={`group relative flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-200 ${
+              activeChat === chat.id
+                ? 'bg-neutral-900'
+                : 'hover:bg-neutral-900/50'
+            }`}
+            onClick={() => onSelectChat(chat.id)}
+          >
+            <MessageSquare className={`size-3.5 flex-shrink-0 mt-0.5 transition-colors ${
+              activeChat === chat.id ? 'text-neutral-400' : 'text-neutral-600'
+            }`} />
+            <div className="flex-1 min-w-0 pr-6">
+              <div className="flex items-center justify-between gap-2">
+                <div className={`text-[13px] truncate transition-colors leading-tight ${
+                  activeChat === chat.id ? 'text-neutral-200' : 'text-neutral-400'
+                }`}>
+                  {chat.title}
+                </div>
+                <div className="text-[11px] text-neutral-500 flex-shrink-0">
+                  {chat.timestamp}
+                </div>
+              </div>
+              <div className="text-[12px] text-neutral-500 truncate">
+                {chat.preview}
+              </div>
+              {chat.isAdminHistory && (
+                <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 text-[10px]">
+                  Historial de usuario
+                </div>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="opacity-0 group-hover:opacity-100 absolute right-1.5 top-1.5 size-6 p-0 hover:bg-neutral-800 hover:text-red-400 transition-all duration-200 rounded-md"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteChat(chat.id);
+              }}
+              title="Eliminar chat"
+            >
+              <Trash2 className="size-3" />
+            </Button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -50,7 +113,7 @@ export function ChatSidebar({
       <div className={`fixed md:relative inset-y-0 left-0 z-50 md:z-auto flex-shrink-0 h-full bg-neutral-950 border-r border-neutral-800/30 transition-all duration-300 ${
         sidebarCollapsed ? '-translate-x-full md:translate-x-0 md:w-0 md:opacity-0' : 'translate-x-0 w-4/5 md:w-64 md:opacity-100'
       } overflow-hidden`}>
-        <div className="flex flex-col h-full w-full md:w-64">
+        <div className="flex flex-col h-full w-full md:w-64 min-h-0">
           {/* Header */}
           <div className="p-2.5 border-b border-neutral-800/30">
             <Button 
@@ -63,48 +126,24 @@ export function ChatSidebar({
           </div>
 
           {/* Chat History */}
-          <ScrollArea className="flex-1">
-            <div className="px-2 py-3 space-y-0.5">
-              {chats.length === 0 ? (
-                <div className="p-8 text-center text-neutral-600 text-xs">
-                  Aún no hay conversaciones
+          <ScrollArea className="flex-1 min-h-0">
+            {isAdmin ? (
+              <div className="space-y-3">
+                <div>
+                  <div className="px-3 pt-3 pb-1 text-[11px] uppercase tracking-[0.08em] text-neutral-500 font-semibold">Mis chats</div>
+                  {renderChatList(personalChats, 'Aún no hay conversaciones propias')}
                 </div>
-              ) : (
-                chats.map((chat) => (
-                  <div
-                    key={chat.id}
-                    className={`group relative flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-200 ${
-                      activeChat === chat.id
-                        ? 'bg-neutral-900'
-                        : 'hover:bg-neutral-900/50'
-                    }`}
-                    onClick={() => onSelectChat(chat.id)}
-                  >
-                    <MessageSquare className={`size-3.5 flex-shrink-0 mt-0.5 transition-colors ${
-                      activeChat === chat.id ? 'text-neutral-400' : 'text-neutral-600'
-                    }`} />
-                    <div className="flex-1 min-w-0 pr-6">
-                      <div className={`text-[13px] truncate transition-colors leading-tight ${
-                        activeChat === chat.id ? 'text-neutral-200' : 'text-neutral-400'
-                      }`}>
-                        {chat.title}
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="opacity-0 group-hover:opacity-100 absolute right-1.5 top-1.5 size-6 p-0 hover:bg-neutral-800 hover:text-red-400 transition-all duration-200 rounded-md"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteChat(chat.id);
-                      }}
-                    >
-                      <Trash2 className="size-3" />
-                    </Button>
+                <div>
+                  <div className="px-3 pt-1 pb-1 text-[11px] uppercase tracking-[0.08em] text-neutral-500 font-semibold flex items-center justify-between">
+                    <span>Historiales usuarios</span>
+                    <span className="text-[10px] text-neutral-600">{adminHistories.length}</span>
                   </div>
-                ))
-              )}
-            </div>
+                  {renderChatList(adminHistories, 'No se han cargado historiales')}
+                </div>
+              </div>
+            ) : (
+              renderChatList(personalChats, 'Aún no hay conversaciones')
+            )}
           </ScrollArea>
 
           {/* User Profile - Fixed at Bottom */}

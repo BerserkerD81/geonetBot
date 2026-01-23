@@ -15,8 +15,8 @@ services:
       context: .
       target: production
       args:
-        # Replace with your backend public URL
-        VITE_API_URL: "190.9.56.141:3000"
+        # Replace with your backend public URL (include protocol)
+        VITE_API_URL: "http://localhost:3000"
     ports:
       - "8080:80"
 

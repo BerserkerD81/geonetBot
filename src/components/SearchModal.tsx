@@ -161,86 +161,84 @@ export function SearchModal({ isOpen, onClose, chats, onSelectChat }: SearchModa
         {/* Results - with proper scrolling */}
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full">
-            <div className="h-full overflow-y-auto">
-              {!query.trim() ? (
-                <div className="p-8 sm:p-12 text-center">
-                  <Search className="size-10 sm:size-12 text-neutral-700 mx-auto mb-3 sm:mb-4" />
-                  <p className="text-neutral-500 text-sm">
-                    Busca en todas tus conversaciones
-                  </p>
-                  <p className="text-neutral-600 text-xs mt-2">
-                    Encuentra chats por título o contenido del mensaje
-                  </p>
+            {!query.trim() ? (
+              <div className="p-8 sm:p-12 text-center">
+                <Search className="size-10 sm:size-12 text-neutral-700 mx-auto mb-3 sm:mb-4" />
+                <p className="text-neutral-500 text-sm">
+                  Busca en todas tus conversaciones
+                </p>
+                <p className="text-neutral-600 text-xs mt-2">
+                  Encuentra chats por título o contenido del mensaje
+                </p>
+              </div>
+            ) : searchResults.length === 0 ? (
+              <div className="p-8 sm:p-12 text-center">
+                <div className="size-10 sm:size-12 rounded-full bg-neutral-800/50 flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                  <Search className="size-5 sm:size-6 text-neutral-600" />
                 </div>
-              ) : searchResults.length === 0 ? (
-                <div className="p-8 sm:p-12 text-center">
-                  <div className="size-10 sm:size-12 rounded-full bg-neutral-800/50 flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                    <Search className="size-5 sm:size-6 text-neutral-600" />
-                  </div>
-                  <p className="text-neutral-400 text-sm font-medium">Sin resultados</p>
-                  <p className="text-neutral-600 text-xs mt-1">
-                    Prueba con otro término de búsqueda
-                  </p>
-                </div>
-              ) : (
-                <div className="p-2">
-                  {searchResults.map((result, index) => (
-                    <button
-                      key={`${result.chatId}-${result.messageId || 'title'}-${index}`}
-                      onClick={() => handleSelect(result)}
-                      className="w-full text-left p-2.5 sm:p-3 rounded-xl hover:bg-neutral-800/70 transition-all duration-200 mb-1 group"
-                    >
-                      <div className="flex items-start gap-2 sm:gap-3">
-                        {/* Icon */}
-                        <div className={`flex-shrink-0 size-7 sm:size-8 rounded-lg flex items-center justify-center mt-0.5 ${
-                          result.matchType === 'title' 
-                            ? 'bg-neutral-800 text-neutral-400' 
-                            : result.messageRole === 'user'
-                            ? 'bg-neutral-800 text-neutral-400'
-                            : 'bg-gradient-to-br from-emerald-500/20 to-green-600/20 text-emerald-400'
-                        }`}>
-                          {result.matchType === 'title' ? (
-                            <MessageSquare className="size-3.5 sm:size-4" />
-                          ) : result.messageRole === 'user' ? (
-                            <User className="size-3.5 sm:size-4" />
-                          ) : (
-                            <Bot className="size-3.5 sm:size-4" />
-                          )}
+                <p className="text-neutral-400 text-sm font-medium">Sin resultados</p>
+                <p className="text-neutral-600 text-xs mt-1">
+                  Prueba con otro término de búsqueda
+                </p>
+              </div>
+            ) : (
+              <div className="p-2 space-y-1">
+                {searchResults.map((result, index) => (
+                  <button
+                    key={`${result.chatId}-${result.messageId || 'title'}-${index}`}
+                    onClick={() => handleSelect(result)}
+                    className="w-full text-left p-2.5 sm:p-3 rounded-xl hover:bg-neutral-800/70 transition-all duration-200 group"
+                  >
+                    <div className="flex items-start gap-2 sm:gap-3">
+                      {/* Icon */}
+                      <div className={`flex-shrink-0 size-7 sm:size-8 rounded-lg flex items-center justify-center mt-0.5 ${
+                        result.matchType === 'title' 
+                          ? 'bg-neutral-800 text-neutral-400' 
+                          : result.messageRole === 'user'
+                          ? 'bg-neutral-800 text-neutral-400'
+                          : 'bg-gradient-to-br from-emerald-500/20 to-green-600/20 text-emerald-400'
+                      }`}>
+                        {result.matchType === 'title' ? (
+                          <MessageSquare className="size-3.5 sm:size-4" />
+                        ) : result.messageRole === 'user' ? (
+                          <User className="size-3.5 sm:size-4" />
+                        ) : (
+                          <Bot className="size-3.5 sm:size-4" />
+                        )}
+                      </div>
+                      
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 mb-1 flex-wrap">
+                          <div className="text-xs sm:text-sm text-white font-medium truncate">
+                            {highlightMatch(result.chatTitle, query)}
+                          </div>
+                          <div className="text-[10px] sm:text-xs text-neutral-600 flex-shrink-0">
+                            {result.chatTimestamp}
+                          </div>
                         </div>
                         
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline gap-2 mb-1 flex-wrap">
-                            <div className="text-xs sm:text-sm text-white font-medium truncate">
-                              {highlightMatch(result.chatTitle, query)}
-                            </div>
-                            <div className="text-[10px] sm:text-xs text-neutral-600 flex-shrink-0">
-                              {result.chatTimestamp}
-                            </div>
+                        {result.matchType === 'message' && (
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                              result.messageRole === 'user' 
+                                ? 'bg-neutral-800 text-neutral-400' 
+                                : 'bg-emerald-500/10 text-emerald-400'
+                            }`}>
+                              {result.messageRole === 'user' ? 'Instalador' : 'Asistente'}
+                            </span>
                           </div>
-                          
-                          {result.matchType === 'message' && (
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                                result.messageRole === 'user' 
-                                  ? 'bg-neutral-800 text-neutral-400' 
-                                  : 'bg-emerald-500/10 text-emerald-400'
-                              }`}>
-                                {result.messageRole === 'user' ? 'Instalador' : 'Asistente'}
-                              </span>
-                            </div>
-                          )}
-                          
-                          <div className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
-                            {highlightMatch(result.snippet || '', query)}
-                          </div>
+                        )}
+                        
+                        <div className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
+                          {highlightMatch(result.snippet || '', query)}
                         </div>
                       </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </ScrollArea>
         </div>
 

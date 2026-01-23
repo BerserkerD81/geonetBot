@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { ChatSidebar } from './components/ChatSidebar';
@@ -11,6 +11,17 @@ import {Search, PanelLeft } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { AdminUserPanel } from './components/AdminUserPanel';
 import { UserAccountPanel } from './components/UserAccountPanel';
+import { Toaster } from './components/ui/sonner';
+import { toast } from 'sonner';
+
+type SuggestedAction = {
+  id: string;
+  type: 'button' | 'input';
+  label: string;
+  payload?: string;
+  placeholder?: string;
+  helperText?: string;
+};
 
 interface Message {
   id: string;
@@ -19,7 +30,10 @@ interface Message {
   versions?: string[]; // Array of alternative versions for assistant messages
   currentVersion?: number; // Index of the currently displayed version
   timestamp?: number; // Timestamp to track new content generation
+  createdAt?: string; // Backend creation datetime
   imageDataUrl?: string; // Optional image attached to the message (user photo)
+  actions?: SuggestedAction[];
+  metadata?: Record<string, any> | null;
 }
 
 interface Chat {
@@ -32,26 +46,17 @@ interface Chat {
   ownerUserId?: number;
 }
 
-// Respuestas de ejemplo para nuevos mensajes orientadas a SmartOLT
-const getMockResponse = (userMessage: string): string => {
-  const lowerMessage = userMessage.toLowerCase();
+// La lógica de respuestas ahora vive en el backend.
 
-  if (lowerMessage.includes('alta') || lowerMessage.includes('nuevo cliente') || lowerMessage.includes('instalación')) {
-    return `Asistente SmartOLT - Alta de cliente:\n\nPuedo ayudarte a validar que la instalación está lista para ser autorizada. Normalmente revisamos:\n\n1) Datos del cliente completos (nombre, documento, dirección)\n2) ONT registrada con número de serie correcto\n3) Puerto de OLT disponible y sin alarmas\n4) Potencia óptica dentro de rango\n5) Evidencias subidas (fotos de acometida, ONT y etiqueta)\n\nCuéntame qué ya tienes cargado y qué te falta, y te guío paso a paso.`;
+// Normaliza la URL del backend para funcionar tanto en dev como en prod.
+const API_BASE = (() => {
+  const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
+  if (envApi && envApi.trim()) {
+    return envApi.startsWith('http') ? envApi : `http://${envApi}`;
   }
-
-  if (lowerMessage.includes('ont') || lowerMessage.includes('olt') || lowerMessage.includes('potencia')) {
-    return `Asistente SmartOLT - Estado de ONT/OLT:\n\nDe forma típica, para revisar un cliente en SmartOLT debes comprobar:\n\n- Estado de la ONT (online/offline)\n- Potencia RX de la ONT\n- Puerto PON y posición del cliente\n- Alarmas activas en el puerto o en la ONT\n\nSi me indicas el ID de cliente, la OLT o el número de serie de la ONT, te puedo sugerir los pasos de diagnóstico que suele seguir el NOC.`;
-  }
-
-  if (lowerMessage.includes('revisar') || lowerMessage.includes('validar') || lowerMessage.includes('checklist')) {
-    return `Asistente SmartOLT - Checklist de instalación:\n\nAquí tienes un checklist típico que usan los instaladores antes de autorizar el alta:\n\n- ONT energizada y con luz PON fija\n- Potencia óptica medida y dentro de rango\n- Conectores limpios y sin dobleces críticos en la fibra\n- Serie de ONT registrada en SmartOLT\n- Fotos de la instalación y del ONT subidas al sistema\n\nPuedes usar este checklist y marcar cada punto mientras haces la instalación.`;
-  }
-
-  return `Soy tu asistente para SmartOLT y la autogestión de instalaciones.\n\nPuedo ayudarte con:\n- Altas de nuevos clientes FTTH\n- Revisión de estado de ONT y puertos de OLT\n- Validación de instalaciones antes de autorizar el servicio\n- Listas de verificación para técnicos instaladores\n\nDime qué estás haciendo (alta nueva, visita técnica, verificación de señal, etc.) y te guío paso a paso.`;
-};
-
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://api:3000';
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:3000`;
+})();
 
 // Títulos de chats de ejemplo antiguos que ya no deben mostrarse
 const LEGACY_CHAT_TITLES = [
@@ -88,6 +93,15 @@ function ChatApp() {
   const retryNonceRef = useRef(0);
   const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
   const [scrollRequestNonce, setScrollRequestNonce] = useState(0);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+
+  type IntegrationStatus = {
+    wisphub: { ok: boolean; latencyMs?: number; error?: string };
+    smartolt: { ok: boolean; latencyMs?: number; error?: string };
+    meta?: { wisphubLastFullSyncAt?: string | null };
+  };
+  const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
+  const prevStatusRef = useRef<IntegrationStatus | null>(null);
   
   type AdminHistoryMessage = {
     id: number;
@@ -95,9 +109,11 @@ function ChatApp() {
     content: string;
     createdAt: string;
     imageUrl?: string | null;
+    actions?: SuggestedAction[];
+    metadata?: Record<string, any> | null;
   };
 
-  const openUserHistoryAsChat = async (
+  const openUserHistoryAsChat = useCallback(async (
     userInfo: { id: number; email: string; name?: string },
     options?: { focus?: boolean; closePanel?: boolean }
   ) => {
@@ -159,6 +175,9 @@ function ChatApp() {
           role: m.role,
           content: m.content,
           imageDataUrl: m.imageUrl ?? undefined,
+          createdAt: m.createdAt,
+          actions: m.actions ?? undefined,
+          metadata: (m as any).metadata ?? null,
         }));
 
         const latest = group[group.length - 1];
@@ -196,7 +215,7 @@ function ChatApp() {
     } catch (error) {
       console.error('Error al cargar historial de usuario para admin', error);
     }
-  };
+  }, [isAdmin]);
 
   // Cuando el usuario es admin, precargar historiales de todos los usuarios como chats de solo lectura
   useEffect(() => {
@@ -226,7 +245,7 @@ function ChatApp() {
     };
 
     void preloadAllHistories();
-  }, [isAdmin]);
+  }, [isAdmin, openUserHistoryAsChat]);
 
   // Save chats to localStorage whenever they change
   useEffect(() => {
@@ -260,8 +279,10 @@ function ChatApp() {
     const el = document.querySelector<HTMLElement>(`[data-message-id="${scrollToMessageId}"]`);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(scrollToMessageId);
+      setTimeout(() => setHighlightedMessageId(null), 2500);
     }
-  }, [scrollRequestNonce]);
+  }, [scrollRequestNonce, scrollToMessageId]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -274,6 +295,51 @@ function ChatApp() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Poll backend integrations status and show alerts on transitions
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/integrations/status`, { credentials: 'include' });
+        const data = (await res.json()) as IntegrationStatus;
+        if (cancelled) return;
+
+        const prev = prevStatusRef.current;
+        setIntegrationStatus(data);
+
+        const transitions: Array<{ key: 'WispHub' | 'SmartOLT'; from?: boolean; to?: boolean }> = [];
+        if (prev) {
+          if (prev.wisphub.ok !== data.wisphub.ok) transitions.push({ key: 'WispHub', from: prev.wisphub.ok, to: data.wisphub.ok });
+          if (prev.smartolt.ok !== data.smartolt.ok) transitions.push({ key: 'SmartOLT', from: prev.smartolt.ok, to: data.smartolt.ok });
+        }
+        prevStatusRef.current = data;
+
+        for (const t of transitions) {
+          if (t.to) {
+            toast.success(`${t.key} conectado de nuevo`, { description: `Estado: OK` });
+          } else {
+            toast.error(`${t.key} desconectado`, { description: `El servicio no responde` });
+          }
+        }
+      } catch (e) {
+        // network failure: only alert on transition to fully down
+        const prev = prevStatusRef.current;
+        if (prev && (prev.wisphub.ok || prev.smartolt.ok)) {
+          toast.error('Integraciones no disponibles', { description: 'No se pudo consultar el estado de integraciones' });
+        }
+        prevStatusRef.current = null;
+        setIntegrationStatus(null);
+      }
+    };
+    fetchStatus();
+    // Poll every 10 minutes (600000 ms) to reduce frequency
+    const id = setInterval(fetchStatus, 600000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   const handleNewChat = () => {
@@ -289,96 +355,100 @@ function ChatApp() {
     }
   };
 
-  const handleSendMessage = (content: string, imageDataUrl?: string) => {
+  const handleSendMessage = async (content: string, imageDataUrl?: string) => {
     if (!content.trim() && !imageDataUrl) return;
 
-    const userMessage: Message = {
-      id: `m${Date.now()}`,
-      role: 'user',
-      content,
-      imageDataUrl,
-    };
-
-    const assistantMessage: Message = {
-      id: `m${Date.now() + 1}`,
-      role: 'assistant',
-      content: getMockResponse(content || (imageDataUrl ? 'Foto enviada' : '')),
-      timestamp: Date.now(),
-    };
-
-    // Fire-and-forget logging to backend for history (best-effort)
-    if (user) {
-      void fetch(`${API_BASE}/chat/messages`, {
+    try {
+      const res = await fetch(`${API_BASE}/chat/respond`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ role: 'user', content, imageDataUrl }),
-      }).catch((err) => {
-        console.error('Error logging user message', err);
+        body: JSON.stringify({ content, imageDataUrl }),
       });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('Error obteniendo respuesta del backend', data?.error || res.statusText);
+        return;
+      }
 
-      void fetch(`${API_BASE}/chat/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ role: 'assistant', content: assistantMessage.content }),
-      }).catch((err) => {
-        console.error('Error logging assistant message', err);
-      });
-    }
-
-    // Mark this message for animation
-    setAnimatingMessageId(assistantMessage.id);
-
-    if (activeChat) {
-      // Add to existing chat
-      setChats((prev) =>
-        prev.map((chat) =>
-          chat.id === activeChat
-            ? {
-                ...chat,
-                messages: [...chat.messages, userMessage, assistantMessage],
-                preview: (content || '[Imagen enviada]').substring(0, 50),
-                timestamp: 'Just now',
-              }
-            : chat
-        )
-      );
-    } else {
-      // Crear nuevo chat
-      const newChat: Chat = {
-        id: `chat${Date.now()}`,
-        title: (content || 'Chat con imagen').substring(0, 50),
-        timestamp: 'Justo ahora',
-        preview: (content || '[Imagen enviada]').substring(0, 50),
-        messages: [userMessage, assistantMessage],
+      const userMsg: Message = {
+        id: `m${data.userMessage.id}`,
+        role: 'user',
+        content: data.userMessage.content,
+        imageDataUrl: data.userMessage.imageUrl ?? undefined,
+        createdAt: data.userMessage.createdAt,
       };
-      setChats((prev) => [newChat, ...prev]);
-      setActiveChat(newChat.id);
+
+      const assistantMsg: Message = {
+        id: `m${data.assistantMessage.id}`,
+        role: 'assistant',
+        content: data.assistantMessage.content,
+        actions: data.assistantMessage.actions ?? [],
+        metadata: data.assistantMessage.metadata ?? null,
+        timestamp: Date.now(),
+        createdAt: data.assistantMessage.createdAt,
+      };
+
+      setAnimatingMessageId(assistantMsg.id);
+
+      if (activeChat) {
+        setChats((prev) =>
+          prev.map((chat) =>
+            chat.id === activeChat
+              ? {
+                  ...chat,
+                  messages: [...chat.messages, userMsg, assistantMsg],
+                  preview: (content || '[Imagen enviada]').substring(0, 50),
+                  timestamp: 'Just now',
+                }
+              : chat
+          )
+        );
+      } else {
+        const newChat: Chat = {
+          id: `chat${Date.now()}`,
+          title: (content || 'Chat con imagen').substring(0, 50),
+          timestamp: 'Justo ahora',
+          preview: (content || '[Imagen enviada]').substring(0, 50),
+          messages: [userMsg, assistantMsg],
+        };
+        setChats((prev) => [newChat, ...prev]);
+        setActiveChat(newChat.id);
+      }
+    } catch (err) {
+      console.error('Fallo al contactar backend', err);
     }
   };
 
-  const handleRetry = () => {
+  const handleRetry = async () => {
     if (!currentChat || currentChat.messages.length < 2) return;
-    
     const lastAssistantMessageIndex = currentChat.messages.length - 1;
     const lastAssistantMessage = currentChat.messages[lastAssistantMessageIndex];
-    
     if (lastAssistantMessage.role !== 'assistant') return;
-    
+
     const lastUserMessage = [...currentChat.messages]
       .reverse()
-      .find(msg => msg.role === 'user');
-    
-    if (lastUserMessage) {
-      // Generate new response
-      const newContent = getMockResponse(lastUserMessage.content);
-      
-      // Update the message with versions
+      .find((msg) => msg.role === 'user');
+
+    if (!lastUserMessage) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/chat/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ content: lastUserMessage.content }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('Error en reintento con backend', data?.error || res.statusText);
+        return;
+      }
+
+      const newContent: string = data.assistantMessage.content;
+      const newActions: SuggestedAction[] = data.assistantMessage.actions ?? [];
+      const newMetadata: Record<string, any> | null = data.assistantMessage.metadata ?? null;
+
       setChats((prev) =>
         prev.map((chat) =>
           chat.id === activeChat
@@ -388,13 +458,11 @@ function ChatApp() {
                   idx === lastAssistantMessageIndex
                     ? {
                         ...msg,
-                        versions: msg.versions 
-                          ? [...msg.versions, newContent]
-                          : [msg.content, newContent],
-                        currentVersion: msg.versions 
-                          ? msg.versions.length 
-                          : 1,
+                        versions: msg.versions ? [...msg.versions, newContent] : [msg.content, newContent],
+                        currentVersion: msg.versions ? msg.versions.length : 1,
                         content: newContent,
+                        actions: newActions,
+                        metadata: newMetadata,
                         timestamp: Date.now(),
                       }
                     : msg
@@ -403,15 +471,14 @@ function ChatApp() {
             : chat
         )
       );
-      
-      // Mark for animation with a changing key to force re-render
+
       retryNonceRef.current += 1;
       setAnimatingMessageId(`${lastAssistantMessage.id}-${retryNonceRef.current}`);
-      
-      // Clear animation flag after animation completes
       setTimeout(() => {
         setAnimatingMessageId(null);
       }, newContent.length * 10 + 100);
+    } catch (err) {
+      console.error('Fallo en reintento', err);
     }
   };
 
@@ -444,11 +511,126 @@ function ChatApp() {
     );
   };
 
+  const handleActionSelect = (payload: string) => {
+    if (!payload.trim()) return;
+    handleSendMessage(payload.trim());
+  };
+
+  const handleSubmitAuth = async (collected: Record<string, any>) => {
+    if (!currentChat) return;
+    try {
+      const res = await fetch(`${API_BASE}/chat/submitAuth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ collected }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error('Error al autorizar: ' + (data?.error || res.statusText));
+        return;
+      }
+
+      if (data?.ok) {
+        // append a user message summarizing the action and the assistant result
+        const userMsg: Message = {
+          id: `m${Date.now()}-auth-user`,
+          role: 'user',
+          content: 'Autorizar SmartOLT',
+          createdAt: new Date().toISOString(),
+        };
+
+        const assistantMsg: Message = {
+          id: `m${Date.now()}-auth-assistant`,
+          role: 'assistant',
+          content:
+            data.message ||
+            'ONU autorizada correctamente. Ya estamos en el momento de configurar el WAN por IP estática. Completa los datos a continuación.',
+          actions: Array.isArray(data.actions) ? data.actions : undefined,
+          createdAt: new Date().toISOString(),
+        };
+
+        setChats((prev) =>
+          prev.map((chat) =>
+            chat.id === currentChat.id
+              ? {
+                  ...chat,
+                  messages: [...chat.messages, userMsg, assistantMsg],
+                  preview: assistantMsg.content.slice(0, 50),
+                  timestamp: 'Just now',
+                }
+              : chat
+          )
+        );
+
+        // show brief success toast
+        toast.success('Autorización enviada, ahora configura el WAN');
+      } else {
+        toast.error('Autorización fallida: ' + (data?.error || 'error desconocido'));
+      }
+    } catch (err) {
+      console.error('submitAuth error', err);
+      toast.error('Fallo al autorizar (request)');
+    }
+  };
+
+  const handleSubmitWan = async (collected: Record<string, any>) => {
+    if (!currentChat) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/chat/applyPendingWan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(collected),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data?.ok) {
+        toast.error('Error al configurar WAN: ' + (data?.error || res.statusText));
+        return;
+      }
+
+      const userMsg: Message = {
+        id: `m${Date.now()}-wan-user`,
+        role: 'user',
+        content: 'Autorizar WAN estático',
+        createdAt: new Date().toISOString(),
+      };
+
+      const assistantMsg: Message = {
+        id: `m${Date.now()}-wan-assistant`,
+        role: 'assistant',
+        content: data.message || 'WAN configurado correctamente en SmartOLT.',
+        createdAt: new Date().toISOString(),
+      };
+
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.id === currentChat.id
+            ? {
+                ...chat,
+                messages: [...chat.messages, userMsg, assistantMsg],
+                preview: assistantMsg.content.slice(0, 50),
+                timestamp: 'Just now',
+              }
+            : chat
+        )
+      );
+
+      toast.success('WAN estático configurado');
+    } catch (err) {
+      console.error('applyPendingWan error', err);
+      toast.error('Fallo al configurar WAN (request)');
+    }
+  };
+
   const handleSelectChat = (id: string, messageId?: string) => {
     setActiveChat(id);
     if (messageId) {
       setScrollToMessageId(messageId);
       setScrollRequestNonce((n) => n + 1);
+      setHighlightedMessageId(messageId);
     }
     setAnimatingMessageId(null);
     
@@ -458,6 +640,15 @@ function ChatApp() {
       setSidebarCollapsed(true);
     }
   };
+
+  function StatusDot({ label, ok }: { label: string; ok: boolean }) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-neutral-400">
+        <span className={`inline-block h-2.5 w-2.5 rounded-full ${ok ? 'bg-emerald-500 shadow-[0_0_10px_2px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_10px_2px_rgba(239,68,68,0.35)]'}`}></span>
+        <span className="hidden lg:inline">{label}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
@@ -518,18 +709,24 @@ function ChatApp() {
               </p>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSearchOpen(true)}
-            className="h-9 px-3 gap-2 hover:bg-neutral-800/70 rounded-lg transition-all duration-200"
-          >
-            <Search className="size-4 text-neutral-400" />
-            <span className="hidden sm:inline text-xs text-neutral-400">Buscar</span>
-            <kbd className="hidden sm:inline-flex h-5 items-center gap-1 rounded bg-neutral-800 px-1.5 font-mono text-[10px] font-medium text-neutral-400">
-              <span className="text-xs">⌘</span>K
-            </kbd>
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-2 pr-2 border-r border-neutral-800/60">
+              <StatusDot label="WispHub" ok={!!integrationStatus?.wisphub?.ok} />
+              <StatusDot label="SmartOLT" ok={!!integrationStatus?.smartolt?.ok} />
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSearchOpen(true)}
+              className="h-9 px-3 gap-2 hover:bg-neutral-800/70 rounded-lg transition-all duration-200"
+            >
+              <Search className="size-4 text-neutral-400" />
+              <span className="hidden sm:inline text-xs text-neutral-400">Buscar</span>
+              <kbd className="hidden sm:inline-flex h-5 items-center gap-1 rounded bg-neutral-800 px-1.5 font-mono text-[10px] font-medium text-neutral-400">
+                <span className="text-xs">⌘</span>K
+              </kbd>
+            </Button>
+          </div>
         </header>
 
         {/* Messages */}
@@ -539,9 +736,20 @@ function ChatApp() {
               {currentChat.messages.map((message, index) => {
                 const animationKey = message.id === animatingMessageId || 
                   animatingMessageId?.startsWith(message.id + '-');
+                const prevMsg = currentChat.messages[index - 1];
+                const currDate = message.createdAt ? new Date(message.createdAt) : null;
+                const prevDate = prevMsg?.createdAt ? new Date(prevMsg.createdAt) : null;
+                const showDateSeparator = currDate && (!prevDate || currDate.toDateString() !== prevDate.toDateString());
                 
                 return (
                   <div key={message.id} data-message-id={message.id}>
+                    {showDateSeparator && (
+                      <div className="flex justify-center my-2">
+                        <div className="px-3 py-1 text-[11px] text-neutral-400 bg-neutral-900/60 border border-neutral-800/60 rounded-full">
+                          {currDate?.toLocaleDateString()}
+                        </div>
+                      </div>
+                    )}
                     <ChatMessage 
                       role={message.role} 
                       content={message.content}
@@ -553,6 +761,13 @@ function ChatApp() {
                       versions={message.versions}
                       currentVersion={message.currentVersion}
                       onVersionChange={handleVersionChange}
+                      actions={message.actions}
+                      onActionSelect={handleActionSelect}
+                      onSubmitAuth={handleSubmitAuth}
+                      onSubmitWan={handleSubmitWan}
+                      createdAt={message.createdAt}
+                      metadata={message.metadata}
+                      highlighted={message.id === highlightedMessageId}
                     />
                   </div>
                 );
@@ -584,6 +799,7 @@ function ChatApp() {
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster richColors position="top-right" />
       <AppContent />
     </AuthProvider>
   );
