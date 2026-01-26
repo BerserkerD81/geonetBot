@@ -1,23 +1,32 @@
-import { Send, Camera, Image as ImageIcon, X } from 'lucide-react';
+import { Send, Camera, Image as ImageIcon, X, RotateCcw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { useRef, useState } from 'react';
 import type { KeyboardEvent, ChangeEvent } from 'react';
 
 interface ChatInputProps {
-  onSendMessage: (message: string, imageDataUrl?: string) => void;
+  onSendMessage: (message: string, imageDataUrl?: string) => Promise<any> | void;
 }
 
 export function ChatInput({ onSendMessage }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const fileInputCameraRef = useRef<HTMLInputElement | null>(null);
   const fileInputFileRef = useRef<HTMLInputElement | null>(null);
 
   const handleSubmit = () => {
     if (!message.trim() && !imageDataUrl) return;
-
-    onSendMessage(message, imageDataUrl ?? undefined);
+    const res = onSendMessage(message, imageDataUrl ?? undefined);
+    // allow onSendMessage to return a promise
+    if (res && typeof (res as any).then === 'function') {
+      setIsSending(true);
+      (res as Promise<any>)
+        .catch(() => {})
+        .finally(() => {
+          setIsSending(false);
+        });
+    }
     setMessage('');
     setImageDataUrl(null);
     if (fileInputCameraRef.current) fileInputCameraRef.current.value = '';
@@ -86,10 +95,14 @@ export function ChatInput({ onSendMessage }: ChatInputProps) {
               <Button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!message.trim() && !imageDataUrl}
+                disabled={isSending || (!message.trim() && !imageDataUrl)}
                 className="flex-shrink-0 h-9 w-9 p-0 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:from-neutral-800 disabled:to-neutral-800 disabled:opacity-40 transition-all duration-200 shadow-lg shadow-emerald-500/20 disabled:shadow-none"
               >
-                <Send className={`size-4.5 ${message.trim() || imageDataUrl ? 'text-white' : 'text-neutral-600'}`} />
+                {isSending ? (
+                  <RotateCcw className="size-4.5 animate-spin text-white" />
+                ) : (
+                  <Send className={`size-4.5 ${message.trim() || imageDataUrl ? 'text-white' : 'text-neutral-600'}`} />
+                )}
               </Button>
             </div>
           </div>

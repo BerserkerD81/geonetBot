@@ -359,11 +359,11 @@ function ChatApp() {
     if (!content.trim() && !imageDataUrl) return;
 
     try {
-      const res = await fetch(`${API_BASE}/chat/respond`, {
+      const res = await fetch(`${API_BASE}/chat/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ content, imageDataUrl }),
+        body: JSON.stringify({ content, imageUrl: imageDataUrl }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -433,7 +433,7 @@ function ChatApp() {
     if (!lastUserMessage) return;
 
     try {
-      const res = await fetch(`${API_BASE}/chat/respond`, {
+      const res = await fetch(`${API_BASE}/chat/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

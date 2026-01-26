@@ -165,6 +165,8 @@ export function ChatMessage({
   const [copied, setCopied] = useState(false);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, string[]>>({});
+  const [parsedActionsFromContent, setParsedActionsFromContent] = useState<ChatMessageProps['actions'] | null>(null);
+  const [cleanContent, setCleanContent] = useState<string | null>(null);
   const smartoltAvailability = (metadata?.smartoltAvailability as SmartoltAvailability | undefined) || null;
 
   // Al seleccionar zona, obtener ODBs; al seleccionar ODB, obtener puertos
@@ -233,7 +235,181 @@ export function ChatMessage({
   const [displayedContent, setDisplayedContent] = useState(shouldAnimate && !isUser ? '' : content);
   const [isTyping, setIsTyping] = useState(false);
 
+  // Small utility: parse text and convert URLs to anchor elements
+  const parseLinks = (text: string) => {
+    if (!text) return [] as Array<string | { href: string; text: string }>;
+    const urlRe = /(https?:\/\/[\w\-./?=&%#:+,;~]+)|(www\.[\w\-./?=&%#:+,;~]+)/gi;
+    const parts: Array<string | { href: string; text: string }> = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    // eslint-disable-next-line no-cond-assign
+    while ((match = urlRe.exec(text)) !== null) {
+      const idx = match.index;
+      if (idx > lastIndex) parts.push(text.slice(lastIndex, idx));
+      const raw = match[0];
+      const href = raw.startsWith('http') ? raw : `http://${raw}`;
+      parts.push({ href, text: raw });
+      lastIndex = idx + raw.length;
+    }
+    if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+    return parts;
+  };
+
+  // Detect JSON content and render it in a friendly way
+  const tryParseJSON = (text: string) => {
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      return parsed;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const renderStructuredJSON = (obj: any) => {
+    if (obj === null || obj === undefined) return null;
+    if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') {
+      return <span>{String(obj)}</span>;
+    }
+    if (Array.isArray(obj)) {
+      return (
+        <ul className="list-disc pl-5 space-y-1">
+          {obj.map((item, i) => (
+            <li key={i} className="text-sm text-neutral-100">
+              {renderStructuredJSON(item)}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    // Object: render key-value pairs
+    return (
+      <div className="space-y-2">
+        {Object.keys(obj).map((k) => (
+          <div key={k} className="text-sm">
+            <div className="text-xs text-neutral-400">{k}</div>
+            <div className="text-neutral-100 pl-2">{renderStructuredJSON(obj[k])}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderContent = (text: string) => {
+    const parsed = tryParseJSON(text);
+    if (parsed) return renderStructuredJSON(parsed);
+
+    return parseLinks(text).map((p, i) =>
+      typeof p === 'string' ? (
+        <span key={i}>{p}</span>
+      ) : (
+        <a key={i} href={p.href} target="_blank" rel="noreferrer" className="underline text-emerald-300">
+          {p.text}
+        </a>
+      )
+    );
+  };
+  const parseActionsBlock = (raw: string) => {
+    if (!raw) return { clean: raw, actions: [] as ChatMessageProps['actions'] };
+    const linesAll = raw.split(/\r?\n/);
+    const trimmedLines = linesAll.map((l) => l.trim());
+    const idx = trimmedLines.findIndex((l) => l.toLowerCase() === 'actions');
+    if (idx === -1) return { clean: raw, actions: [] as ChatMessageProps['actions'] };
+    const before = linesAll.slice(0, idx).join('\n').trim();
+    const afterLines = linesAll.slice(idx + 1).map((l) => l.trim()).filter((l) => l.length > 0);
+    const actionsArr: ChatMessageProps['actions'] = [];
+    let current: any = null;
+    const takeKV = (line: string) => {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx !== -1) {
+        const k = line.slice(0, colonIdx).trim().toLowerCase();
+        const v = line.slice(colonIdx + 1).trim();
+        return [k, v];
+      }
+      const parts = line.split(/\s+/);
+      if (parts.length === 2) return [parts[0].toLowerCase(), parts[1]];
+      return [line.toLowerCase(), ''];
+    };
+    for (let i = 0; i < afterLines.length; i++) {
+      const line = afterLines[i];
+      let key = '';
+      let val = '';
+      if (['id', 'type', 'label', 'payload', 'options', 'placeholder', 'helpertext'].includes(line.toLowerCase())) {
+        key = line.toLowerCase();
+        val = (afterLines[i + 1] || '').trim();
+        i += 1;
+      } else {
+        const [k, v] = takeKV(line) as [string, string];
+        key = k;
+        val = v;
+      }
+      if (key === 'id') {
+        if (current && current.id) actionsArr.push(current);
+        current = { id: val, type: 'button', label: val };
+      } else if (key === 'type') {
+        if (!current) continue;
+        current.type = (val || 'button') as any;
+      } else if (key === 'label') {
+        if (!current) continue;
+        current.label = val;
+      } else if (key === 'payload') {
+        if (!current) continue;
+        current.payload = val;
+      } else if (key === 'options') {
+        if (!current) continue;
+        current.options = val.split(',').map((s) => s.trim()).filter(Boolean);
+      } else if (key === 'placeholder') {
+        if (!current) continue;
+        current.placeholder = val;
+      } else if (key === 'helpertext') {
+        if (!current) continue;
+        current.helperText = val;
+      }
+    }
+    if (current && current.id) actionsArr.push(current);
+    return { clean: before, actions: actionsArr };
+  };
+
   useEffect(() => {
+    if (Array.isArray(actions) && actions.length > 0) {
+      setParsedActionsFromContent(null);
+      setCleanContent(null);
+      return;
+    }
+
+    // Primero, intentar detectar si el content es JSON que incluye { output, actions }
+    try {
+      const maybe = tryParseJSON(content || '');
+      if (maybe) {
+        // Manejar formatos: arreglo con primer elemento, o objeto directo
+        const entry = Array.isArray(maybe) ? maybe[0] : maybe;
+        const output = entry?.output ?? null;
+        const actionsFromJson = entry?.actions ?? null;
+        if (actionsFromJson && Array.isArray(actionsFromJson) && actionsFromJson.length > 0) {
+          setParsedActionsFromContent(actionsFromJson as ChatMessageProps['actions']);
+          setCleanContent(typeof output === 'string' ? output : null);
+          console.debug('[ChatMessage] parsed actions from JSON content', { actionsFromJson, output });
+          return;
+        }
+      }
+    } catch (err) {
+      console.debug('[ChatMessage] json parse attempt failed', err);
+    }
+
+    // Fallback: parse block style 'actions' inside content
+    const { clean, actions: parsed } = parseActionsBlock(content || '');
+    console.debug('[ChatMessage] parseActionsBlock result', { content, clean, parsed });
+    if (parsed && parsed.length > 0) {
+      setParsedActionsFromContent(parsed);
+      setCleanContent(clean);
+    } else {
+      setParsedActionsFromContent(null);
+      setCleanContent(null);
+    }
+  }, [content, actions]);
+
+  useEffect(() => {
+    const source = cleanContent ?? content;
     let interval: ReturnType<typeof setInterval> | null = null;
     let startTimeout: ReturnType<typeof setTimeout> | null = null;
     let settleTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -244,8 +420,8 @@ export function ChatMessage({
         setIsTyping(true);
         let index = 0;
         interval = setInterval(() => {
-          if (index < content.length) {
-            setDisplayedContent(content.slice(0, index + 1));
+          if (index < source.length) {
+            setDisplayedContent(source.slice(0, index + 1));
             index += 1;
           } else {
             setIsTyping(false);
@@ -255,7 +431,7 @@ export function ChatMessage({
       }, 0);
     } else {
       settleTimeout = setTimeout(() => {
-        setDisplayedContent(content);
+        setDisplayedContent(source);
         setIsTyping(false);
       }, 0);
     }
@@ -265,7 +441,7 @@ export function ChatMessage({
       if (startTimeout) clearTimeout(startTimeout);
       if (settleTimeout) clearTimeout(settleTimeout);
     };
-  }, [content, shouldAnimate, isUser]);
+  }, [content, cleanContent, shouldAnimate, isUser]);
 
   const handleCopy = async () => {
     try {
@@ -328,7 +504,9 @@ export function ChatMessage({
 
   // Filtrar los inputs para ocultar OLT ID, Board y Port si ya hay selección previa
   // Defensive: filter out null/undefined actions
-  const safeActions = Array.isArray(actions) ? actions.filter((a) => a && typeof a === 'object' && a.type) : [];
+  const mergedActions = Array.isArray(actions) && actions.length > 0 ? actions : parsedActionsFromContent || [];
+  console.debug('[ChatMessage] mergedActions', { actionsProp: actions, parsedActionsFromContent, mergedActions });
+  const safeActions = Array.isArray(mergedActions) ? mergedActions.filter((a) => a && typeof a === 'object' && a.type) : [];
   const rawInputActions = safeActions.filter((a) => a.type === 'input');
   // Unificar velocidad: mostrar solo un input 'auth-speed' si existen download/upload o si ya hay valores previos
   const inputActions = useMemo(() => {
@@ -552,7 +730,8 @@ export function ChatMessage({
         {authUser?.username ?? authUser?.displayName ?? authUser?.email ?? 'Tú'}
       </div>
       <div className="inline-block max-w-[90%] sm:max-w-[85%] bg-gradient-to-br from-neutral-800 to-neutral-850 text-neutral-50 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl shadow-sm text-sm sm:text-[15px] leading-[1.7] whitespace-pre-wrap break-words border border-neutral-700/60">
-        {displayedContent}
+        {/* Render text with link parsing or structured JSON for better UX */}
+        {renderContent(displayedContent)}
         {imageDataUrl && (
           <div className="mt-3">
             <img
@@ -641,7 +820,7 @@ export function ChatMessage({
   const renderAssistantMessage = () => (
     <div className="flex flex-col gap-3">
       <div className="text-neutral-50 text-sm sm:text-[15px] leading-[1.8] whitespace-pre-wrap break-words">
-        {displayedContent}
+        {renderContent(displayedContent)}
         {isTyping && <span className="inline-block w-1.5 h-5 bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
         {imageDataUrl && (
           <div className="mt-3">
@@ -656,7 +835,7 @@ export function ChatMessage({
 
       {renderSmartoltAvailability()}
 
-      {actions && actions.length > 0 && (
+      {mergedActions && mergedActions.length > 0 && (
         <div className="mt-1 space-y-4">
           {selectionButtonsToRender.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
@@ -812,6 +991,17 @@ export function ChatMessage({
               </>
             )}
           </Button>
+            {onRetry && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onRetry}
+                className="h-6 w-6 p-0 text-rose-400 hover:text-white hover:bg-neutral-700/70 rounded-md transition-all duration-200"
+                title="Reintentar"
+              >
+                <RotateCcw className="size-3.5" />
+              </Button>
+            )}
           {isLatest && onRetry && (
             <Button
               variant="ghost"
