@@ -31,7 +31,7 @@ interface Message {
   currentVersion?: number; // Index of the currently displayed version
   timestamp?: number; // Timestamp to track new content generation
   createdAt?: string; // Backend creation datetime
-  imageDataUrl?: string; // Optional image attached to the message (user photo)
+  imageDataUrl?: string; // Optional image attached to  the message (user photo)
   actions?: SuggestedAction[];
   metadata?: Record<string, any> | null;
 }
@@ -247,10 +247,27 @@ function ChatApp() {
     void preloadAllHistories();
   }, [isAdmin, openUserHistoryAsChat]);
 
-  // Save chats to localStorage whenever they change
+  // Save chats to localStorage whenever they change, limiting size to avoid QuotaExceededError
   useEffect(() => {
     if (user && chats.length > 0) {
-      localStorage.setItem(`chats_${user.id}`, JSON.stringify(chats));
+      // Limit to 20 most recent chats
+      const limitedChats = chats.slice(0, 20).map(chat => ({
+        ...chat,
+        // Limit to 100 most recent messages per chat
+        messages: chat.messages.slice(-100),
+      }));
+      try {
+        localStorage.setItem(`chats_${user.id}`, JSON.stringify(limitedChats));
+      } catch (e) {
+        // If still over quota, try with fewer chats
+        for (let n = 15; n >= 1; n -= 2) {
+          try {
+            const lessChats = limitedChats.slice(0, n);
+            localStorage.setItem(`chats_${user.id}`, JSON.stringify(lessChats));
+            break;
+          } catch {}
+        }
+      }
     }
   }, [chats, user]);
 

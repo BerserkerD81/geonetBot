@@ -134,7 +134,7 @@ export function ChatInput({ onSendMessage }: ChatInputProps) {
           </div>
         )}
         <div className="text-center text-xs text-neutral-600 mt-3">
-          <kbd className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-neutral-500 font-medium">Enter</kbd> para enviar 7 <kbd className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-neutral-500 font-medium">Shift + Enter</kbd> para nueva línea
+          <kbd className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-neutral-500 font-medium">Enter</kbd> para enviar  <kbd className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-neutral-500 font-medium">Shift + Enter</kbd> para nueva línea
         </div>
       </div>
     </div>

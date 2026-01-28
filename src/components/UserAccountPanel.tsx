@@ -3,7 +3,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card } from './ui/card';
-import { Shield, UserCircle2, X, KeyRound } from 'lucide-react';
+import { UserCircle2, X, KeyRound } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { Alert, AlertTitle, AlertDescription } from './ui/alert';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,43 +15,14 @@ interface UserAccountPanelProps {
 }
 
 export function UserAccountPanel({ onClose }: UserAccountPanelProps) {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const [name, setName] = useState(user?.name ?? '');
-
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-
-  const handleUpdateProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    try {
-      setLoading(true);
-      const res = await fetch(`${API_BASE}/auth/me`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: name || undefined }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError((data as any).error || 'No se pudo actualizar el perfil');
-        return;
-      }
-      setSuccess('Perfil actualizado correctamente.');
-      await refreshUser();
-    } catch (err) {
-      console.error(err);
-      setError('Error de red al actualizar perfil');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,9 +50,16 @@ export function UserAccountPanel({ onClose }: UserAccountPanelProps) {
         credentials: 'include',
         body: JSON.stringify({ currentPassword, newPassword }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({} as unknown));
       if (!res.ok) {
-        setError((data as any).error || 'No se pudo cambiar la contraseña');
+        let message = 'No se pudo cambiar la contraseña';
+        if (typeof data === 'object' && data !== null && 'error' in data) {
+          const errVal = (data as { error?: unknown }).error;
+          if (typeof errVal === 'string') {
+            message = errVal;
+          }
+        }
+        setError(message);
         return;
       }
       setSuccess('Contraseña actualizada correctamente.');

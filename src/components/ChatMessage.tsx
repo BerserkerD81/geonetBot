@@ -1,42 +1,99 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, Copy, RotateCcw } from 'lucide-react';
+import { 
+  Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
+  Copy, RotateCcw, MapPin, Maximize2, Download, Eye, X 
+} from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { useAuth } from '../contexts/AuthContext';
 
+// --- TIPOS ---
+
+// 1. Tipos reutilizables para ONUs y OLTs
+type OnuEntry = {
+  id: string;
+  label: string;
+  ponType?: string;
+  port?: string;
+  board?: string;
+  ponPort?: string;
+  sn?: string;
+  type?: string;
+  model?: string;
+  description?: string;
+  actionPayload?: string;
+};
+
+type OltEntry = {
+  oltId: string;
+  oltName?: string;
+  availableCount?: number;
+  onus: OnuEntry[];
+};
+
+// 2. Tipos para respuestas de API interna
+type OdbApiResponseItem = {
+  id?: string | number;
+  name?: string;
+  externalId?: string | number;
+};
+
+type PortApiResponseItem = string | number | { port: string | number };
+
 type ActionOption = {
   id: string;
   label: string;
+  type: 'button' | 'input' | 'link';
   placeholder?: string;
   options?: string[];
   payload?: string;
   helperText?: string;
+  url?: string;
 };
 
 type SmartoltAvailability = {
-  olts?: Array<{
-    oltId: string;
-    oltName?: string;
-    availableCount?: number;
-    onus: Array<{
-      id: string;
-      label: string;
-      ponType?: string;
-      port?: string;
-      model?: string;
-      actionPayload?: string;
-    }>;
-  }>;
+  olts?: OltEntry[];
   suggestedVlan?: string;
   suggestedZone?: string;
 };
 
-type MessageMetadata = {
-  smartoltAvailability?: SmartoltAvailability;
+type InstallationEntry = {
+  id: string;
+  clientName: string;
+  rut?: string;
+  address?: string;
+  actionPayload?: string;
 };
 
+type MessageMetadata = {
+  smartoltAvailability?: SmartoltAvailability;
+  installations?: InstallationEntry[];
+};
+
+interface ChatMessageProps {
+  role: 'user' | 'assistant';
+  content: string;
+  imageDataUrl?: string;
+  createdAt?: string;
+  isLatest?: boolean;
+  onRetry?: () => void;
+  shouldAnimate?: boolean;
+  messageId?: string;
+  versions?: string[];
+  currentVersion?: number;
+  onVersionChange?: (messageId: string, direction: 'prev' | 'next') => void;
+  actions?: ActionOption[];
+  onActionSelect?: (payload: string) => void;
+  onSubmitAuth?: (collected: Record<string, string>) => void | Promise<void>;
+  onSubmitWan?: (collected: Record<string, string>) => void | Promise<void>;
+  onSubmitAction?: (payload: string, collected: Record<string, string>) => void | Promise<void>;
+  highlighted?: boolean;
+  metadata?: MessageMetadata | null;
+}
+
+// --- UTILIDADES ---
 const API_BASE = (() => {
   const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
   if (envApi && envApi.trim()) {
@@ -55,6 +112,48 @@ const normalizeSpeedProfile = (val: string) => {
   return `${num}M`;
 };
 
+const parseMarkdownTableToInstallations = (content: string, actions?: ActionOption[]): InstallationEntry[] => {
+  try {
+    const lines = content.split('\n').map(l => l.trim()).filter(l => l.startsWith('|'));
+    if (lines.length < 3) return [];
+
+    const header = lines[0].toLowerCase();
+    if (!header.includes('cliente') || !header.includes('dirección')) return [];
+
+    const dataLines = lines.slice(2);
+    const parsed: InstallationEntry[] = [];
+
+    dataLines.forEach(line => {
+      const cols = line.split('|').map(c => c.trim());
+      if (cols.length >= 6) {
+        const clientName = cols[2];
+        const rut = cols[3];
+        const installId = cols[4];
+        const address = cols[5];
+        if (!installId || !clientName || installId === '-') return;
+
+        const relatedAction = actions?.find(
+          a => a.id === `select-installation-${installId}` || 
+               (a.payload && a.payload.includes(`instalación ${installId}`))
+        );
+
+        parsed.push({
+          id: installId,
+          clientName,
+          rut,
+          address,
+          actionPayload: relatedAction?.payload || `seleccionar instalación ${installId}`
+        });
+      }
+    });
+    return parsed;
+  } catch (e) {
+    console.error("Error parseando tabla markdown", e);
+    return [];
+  }
+};
+
+// --- COMPONENTE SELECT ---
 function SearchableSelect({
   action,
   value,
@@ -111,33 +210,7 @@ function SearchableSelect({
   );
 }
 
-interface ChatMessageProps {
-  role: 'user' | 'assistant';
-  content: string;
-  imageDataUrl?: string;
-  createdAt?: string;
-  isLatest?: boolean;
-  onRetry?: () => void;
-  shouldAnimate?: boolean;
-  messageId?: string;
-  versions?: string[];
-  currentVersion?: number;
-  onVersionChange?: (messageId: string, direction: 'prev' | 'next') => void;
-  actions?: Array<{
-    id: string;
-    type: 'button' | 'input';
-    label: string;
-    payload?: string;
-    placeholder?: string;
-    helperText?: string;
-    options?: string[];
-  }>;
-  onActionSelect?: (payload: string) => void;
-  onSubmitAuth?: (collected: Record<string, string>) => void | Promise<void>;
-  onSubmitWan?: (collected: Record<string, string>) => void | Promise<void>;
-  highlighted?: boolean;
-  metadata?: MessageMetadata | null;
-}
+// --- COMPONENTE PRINCIPAL ---
 
 export function ChatMessage({
   role,
@@ -155,6 +228,7 @@ export function ChatMessage({
   onActionSelect,
   onSubmitAuth,
   onSubmitWan,
+  onSubmitAction,
   highlighted = false,
   metadata,
 }: ChatMessageProps) {
@@ -162,77 +236,48 @@ export function ChatMessage({
   const authUser = user as { username?: string | null; displayName?: string | null; email?: string | null } | null;
   const isUser = role === 'user';
 
+  // Estados locales
   const [copied, setCopied] = useState(false);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, string[]>>({});
-  const smartoltAvailability = (metadata?.smartoltAvailability as SmartoltAvailability | undefined) || null;
-
-  // Al seleccionar zona, obtener ODBs; al seleccionar ODB, obtener puertos
-  const fetchOdbOptionsForZone = async (zone: string) => {
-    const trimmed = zone.trim();
-    if (!trimmed) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/smartolt/zones/${encodeURIComponent(trimmed)}/odbs`, {
-        credentials: 'include',
-        cache: 'no-store'
-      });
-      const data = await res.json();
-      console.log('[ODB fetch]', {
-        zone: trimmed,
-        url: `${API_BASE}/smartolt/zones/${encodeURIComponent(trimmed)}/odbs`,
-        status: res.status,
-        ok: res.ok,
-        data
-      });
-      if (Array.isArray(data?.odbs)) {
-        // Guardar mapeo nombre/id -> externalId para lookup posterior
-        const odbMap: Record<string, string> = {};
-        const options = data.odbs
-          .map((o: { name?: string; id?: string; externalId?: string }) => {
-            if (o?.name && o?.externalId) odbMap[o.name] = o.externalId;
-            if (o?.id && o?.externalId) odbMap[o.id] = o.externalId;
-            return o?.name || o?.id;
-          })
-          .filter((v: string | undefined) => v)
-          .map((v: string | undefined) => String(v));
-        if (options.length) {
-          setDynamicOptions((prev) => ({ ...prev, 'auth-odb': options }));
-          // Guardar el mapeo en un ref para uso posterior
-          setOdbNameToExternalId(odbMap);
-        }
-      }
-    } catch (err) {
-      console.error('No se pudieron obtener CTOs por zona', err);
-    }
-  };
-
-  // Guardar mapeo ODB nombre/id -> externalId
   const [odbNameToExternalId, setOdbNameToExternalId] = useState<Record<string, string>>({});
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [selectedOnu, setSelectedOnu] = useState<{
+    oltId?: string;
+    board?: string;
+    port?: string;
+    ponType?: string;
+    onuId?: string;
+  } | null>(null);
 
-  // Al seleccionar una ODB, obtener puertos disponibles
-  const fetchPortsForOdb = async (odbNameOrId: string) => {
-    const externalId = odbNameToExternalId[odbNameOrId] || odbNameOrId;
-    if (!externalId) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/odbs/${encodeURIComponent(externalId)}/ports`, {
-        credentials: 'include',
-        cache: 'no-store'
-      });
-      const data = await res.json();
-      console.log('[ODB ports fetch]', { odb: odbNameOrId, externalId, ports: data?.ports });
-      if (Array.isArray(data?.ports)) {
-        // Normalizar a string para el select
-        const portOptions = data.ports.map((p: any) => (typeof p === 'object' && p.port ? String(p.port) : String(p)));
-        setDynamicOptions((prev) => ({ ...prev, 'auth-odb-port': portOptions }));
-      }
-    } catch (err) {
-      console.error('No se pudieron obtener puertos para ODB', odbNameOrId, err);
-    }
-  };
+  // Animación
   const [displayedContent, setDisplayedContent] = useState(shouldAnimate && !isUser ? '' : content);
   const [isTyping, setIsTyping] = useState(false);
 
+  // Memoización de datos
+  const smartoltAvailability = (metadata?.smartoltAvailability as SmartoltAvailability | undefined) || null;
+  
+  // 1. Detectamos si hay tablas
+  const hasSmartoltTable = Boolean(smartoltAvailability?.olts?.length);
+  
+  const installations: InstallationEntry[] = useMemo(() => {
+    if (metadata?.installations && metadata.installations.length > 0) return metadata.installations;
+    if (!isUser && content.includes('|') && content.toLowerCase().includes('cliente')) {
+      return parseMarkdownTableToInstallations(content, actions);
+    }
+    return [];
+  }, [metadata, content, isUser, actions]);
+  
+  const hasInstallationsTable = Boolean(installations.length);
+
+  const cleanContent = useMemo(() => {
+    if (isUser || installations.length === 0) return displayedContent;
+    const tableRegex = /^\|.*\|[\s\S]*?(\n(?![ \t]*\|)|$)/gm;
+    const cleaned = displayedContent.replace(tableRegex, '').trim();
+    return cleaned || (installations.length > 0 ? "He encontrado las siguientes instalaciones:" : "");
+  }, [displayedContent, isUser, installations]);
+
+  // Efecto de mecanografía
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
     let startTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -267,585 +312,450 @@ export function ChatMessage({
     };
   }, [content, shouldAnimate, isUser]);
 
+  // Fetching dinámico (CORREGIDO TIPOS AQUÍ)
+  const fetchOdbOptionsForZone = async (zone: string) => {
+    const trimmed = zone.trim();
+    if (!trimmed) return;
+    try {
+      const res = await fetch(`${API_BASE}/smartolt/zones/${encodeURIComponent(trimmed)}/odbs`, { credentials: 'include', cache: 'no-store' });
+      const data = await res.json();
+      if (Array.isArray(data?.odbs)) {
+        const odbMap: Record<string, string> = {};
+        // FIX: Usamos OdbApiResponseItem en lugar de any
+        const options = data.odbs.map((o: OdbApiResponseItem) => {
+            if (o?.name && o?.externalId) odbMap[o.name] = String(o.externalId);
+            return o?.name || (o?.id ? String(o.id) : '');
+          }).filter(Boolean).map(String);
+        setDynamicOptions((prev) => ({ ...prev, 'auth-odb': options }));
+        setOdbNameToExternalId(odbMap);
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  // (CORREGIDO TIPOS AQUÍ)
+  const fetchPortsForOdb = async (odbNameOrId: string) => {
+    const externalId = odbNameToExternalId[odbNameOrId] || odbNameOrId;
+    if (!externalId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/odbs/${encodeURIComponent(externalId)}/ports`, { credentials: 'include', cache: 'no-store' });
+      const data = await res.json();
+      if (Array.isArray(data?.ports)) {
+        // FIX: Usamos PortApiResponseItem en lugar de any
+        const portOptions = data.ports.map((p: PortApiResponseItem) => 
+          typeof p === 'object' ? String(p.port) : String(p)
+        );
+        setDynamicOptions((prev) => ({ ...prev, 'auth-odb-port': portOptions }));
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  // Helpers
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy text:', err);
-      const textArea = document.createElement('textarea');
-      textArea.value = content;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-999999px';
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch (fallbackErr) {
-        console.error('Fallback copy failed:', fallbackErr);
-      }
-      document.body.removeChild(textArea);
+    } catch (err) { console.error(err); }
+  };
+
+  const downloadImage = (url: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `smartolt-evidencia-${Date.now()}.png`;
+    link.click();
+  };
+
+  const resolvePayload = (actionPayload?: string, value?: string) => {
+    if (actionPayload && value) return actionPayload.replace('{input}', value);
+    return actionPayload || value || '';
+  };
+
+  // (CORREGIDO TIPOS AQUÍ)
+  const handleOnuSelect = (onu: OnuEntry, olt: OltEntry) => {
+    setSelectedOnu({ oltId: olt.oltId, board: onu.board, port: onu.port, ponType: onu.ponType, onuId: onu.id });
+    if (onu.actionPayload) onActionSelect?.(onu.actionPayload);
+  };
+
+  // -------------------------------------------------------------
+  // LÓGICA DE FILTRADO DE ACCIONES
+  // -------------------------------------------------------------
+  
+  const safeActions = useMemo(() => (Array.isArray(actions) ? actions.filter((a) => a?.type) : []), [actions]);
+  
+  const inputActions = useMemo(() => {
+    const rawInputs = safeActions.filter((a) => a.type === 'input');
+    const hasSpeedPrev = !!inputValues['auth-speed'] || !!inputValues['auth-download'] || !!inputValues['auth-upload'];
+    const filtered = rawInputs.filter((a) => {
+        if (selectedOnu && ["auth-olt_id", "auth-board", "auth-port"].includes(a.id)) return false;
+        return !["auth-download", "auth-upload"].includes(a.id);
+    }).map(a => ({ ...a, options: dynamicOptions[a.id] || a.options }));
+
+    if ((rawInputs.some(a => ['auth-download', 'auth-upload'].includes(a.id)) || hasSpeedPrev) && !filtered.some(a => a.id === 'auth-speed')) {
+      filtered.push({
+        id: 'auth-speed', label: 'Velocidad (M)', placeholder: 'Ej: 300M',
+        options: ['200M', '400M', '600M', '800M'], helperText: 'Velocidad simétrica', type: 'input'
+      });
     }
+    return filtered;
+  }, [safeActions, selectedOnu, dynamicOptions, inputValues]);
+
+  // Aquí filtramos los botones. Si hasSmartoltTable es true, eliminamos botones de selección de ONU
+  const buttonActions = safeActions
+    .filter((a) => a.type === 'button' || a.type === 'link')
+    .filter((a) => {
+      // OCULTAR BOTONES REDUNDANTES SI YA HAY TABLA
+      if (hasSmartoltTable) {
+        // Busca ids tipo 'select-onu-xx' o payloads que digan 'seleccionar onu'
+        if (a.id.includes('select-onu') || (a.payload || '').toLowerCase().includes('seleccionar onu')) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+  const submitAction = buttonActions.find((a) => a.id === 'auth-submit' || a.id === 'wan-apply' || a.id === 'wifi_submit');
+  
+  // Filtramos botones de selección (ej: sugerencias de texto) que NO sean de ONU (ya filtrados arriba)
+  const selectionButtonsToRender = buttonActions.filter((a) => {
+    const isSelection = a.id.startsWith('select') || (a.payload || '').toLowerCase().includes('seleccionar');
+    if (!isSelection) return false;
+    
+    // También ocultamos botones de instalación si ya hay tabla de instalaciones
+    if (hasInstallationsTable && (a.id.startsWith('select-installation-') || installations.some(i => i.actionPayload === a.payload))) return false;
+    
+    return true;
+  });
+
+  const selectionIds = new Set(selectionButtonsToRender.map(a => a.id));
+  const otherButtons = buttonActions.filter(a => a.id !== submitAction?.id && !selectionIds.has(a.id) && !a.id.startsWith('select-installation-'));
+  
+  // Submit handler
+  const handleBulkSubmit = async () => {
+    const isWanFlow = submitAction?.id === 'wan-apply';
+    const isWifiFlow = submitAction?.id === 'wifi_submit'; 
+    const collected: Record<string, string> = {};
+    let speedValue = '';
+
+    for (const action of inputActions) {
+      const val = (inputValues[action.id] || action.placeholder || '').toString().trim();
+      if (!val && action.id !== 'auth-sn' && !action.id.startsWith('wifi_')) continue;
+      if (action.id === 'auth-speed') { speedValue = normalizeSpeedProfile(val); continue; }
+      const key = action.id.startsWith('wifi_') ? action.id : action.id.replace(/^auth-|^wan-/, '');
+      collected[key] = val;
+    }
+
+    if (speedValue) {
+      collected['download_speed_profile_name'] = speedValue;
+      collected['upload_speed_profile_name'] = speedValue;
+    }
+    if (selectedOnu) Object.assign(collected, selectedOnu);
+
+    let finalPayload = submitAction?.payload || '';
+    if (isWifiFlow && finalPayload) {
+      Object.keys(collected).forEach((key) => {
+        finalPayload = finalPayload.replace(new RegExp(`{${key}}`, 'g'), collected[key]);
+      });
+    }
+
+    if (isWifiFlow) {
+      if (onSubmitAction) await onSubmitAction(finalPayload, collected);
+      else if (onActionSelect) onActionSelect(finalPayload);
+    } else if (isWanFlow) await onSubmitWan?.(collected);
+    else await onSubmitAuth?.(collected);
   };
 
   const hasVersions = versions && versions.length > 1;
   const currentIdx = currentVersion ?? 0;
 
-  const resolvePayload = (actionPayload?: string, value?: string) => {
-    if (actionPayload && value) return actionPayload.replace('{input}', value);
-    if (actionPayload) return actionPayload;
-    if (value) return `${value}`;
-    return '';
-  };
-
-  // Detectar si ya hay selección previa de OLT/ONU (por ejemplo, tras seleccionar una ONU de la tabla)
-  // Se asume que si metadata.smartoltAvailability y hay una ONU seleccionada, se puede extraer oltId, board y port
-  const [selectedOnu, setSelectedOnu] = useState<{
-    oltId?: string;
-    board?: string;
-    port?: string;
-    ponType?: string;
-    onuId?: string;
-  } | null>(null);
-
-  // Si el usuario selecciona una ONU desde la tabla, guardar la selección
-  type OltType = { oltId: string; oltName?: string };
-  type OnuType = { id: string; board?: string; port?: string; ponType?: string; actionPayload?: string };
-  const handleOnuSelect = (onu: OnuType, olt: OltType) => {
-    setSelectedOnu({
-      oltId: olt.oltId,
-      board: onu.board,
-      port: onu.port,
-      ponType: onu.ponType,
-      onuId: onu.id,
-    });
-    // Si hay un payload de acción, ejecutarlo
-    if (onu.actionPayload) onActionSelect?.(onu.actionPayload);
-  };
-
-  // Filtrar los inputs para ocultar OLT ID, Board y Port si ya hay selección previa
-  // Defensive: filter out null/undefined actions
-  const safeActions = Array.isArray(actions) ? actions.filter((a) => a && typeof a === 'object' && a.type) : [];
-  const rawInputActions = safeActions.filter((a) => a.type === 'input');
-  // Unificar velocidad: mostrar solo un input 'auth-speed' si existen download/upload o si ya hay valores previos
-  const inputActions = useMemo(() => {
-    // Filter out OLT/ONU fields if already selected, and only keep one speed input
-    let speedFiltered = false;
-    const filtered = rawInputActions
-      .filter((a) => {
-        if (!selectedOnu) return true;
-        if (["auth-olt_id", "auth-board", "auth-port"].includes(a.id)) return false;
-        // Ocultar download/upload si hay ambos y mostrar solo uno custom
-        if (["auth-download", "auth-upload"].includes(a.id)) {
-          if (!speedFiltered) {
-            speedFiltered = true;
-            return false; // Ocultamos los originales, agregamos custom luego
-          }
-          return false;
-        }
-        return true;
-      })
-      .map((a) => {
-        const dyn = dynamicOptions[a.id];
-        if (dyn) return { ...a, options: dyn };
-        return a;
-      });
-    // Agregar input custom de velocidad si corresponde (si hay download/upload o si ya hay valores previos)
-    const hasDownload = rawInputActions.some(a => a.id === 'auth-download');
-    const hasUpload = rawInputActions.some(a => a.id === 'auth-upload');
-    const hasSpeedPrev = !!inputValues['auth-speed'] || !!inputValues['auth-download'] || !!inputValues['auth-upload'];
-    const alreadyIn = filtered.some(a => a.id === 'auth-speed');
-    if ((hasDownload || hasUpload || hasSpeedPrev) && !alreadyIn) {
-      filtered.push({
-        id: 'auth-speed',
-        type: 'input',
-        label: 'Velocidad (M)',
-        placeholder: 'Ej: 300M',
-        helperText: 'La velocidad se aplicará simétrica (bajada/subida)',
-        options: ['200M', '400M', '600M', '800M'],
-      });
-    }
-    return filtered;
-  }, [rawInputActions, selectedOnu, dynamicOptions, inputValues]);
-  const buttonActions = safeActions.filter((a) => a.type === 'button');
-  const submitAction = buttonActions.find((a) => a.id === 'auth-submit' || a.id === 'wan-apply');
-  const hasSmartoltTable = Boolean(smartoltAvailability?.olts?.length);
-  const selectionButtons = buttonActions.filter(
-    (a) => a.id.startsWith('select') || (a.payload || '').toLowerCase().includes('seleccionar')
-  );
-  const selectionButtonsToRender = hasSmartoltTable
-    ? selectionButtons.filter((a) => !a.id.startsWith('select-onu-'))
-    : selectionButtons;
-  const selectionIds = new Set(selectionButtonsToRender.map((a) => a.id));
-  const otherButtons = buttonActions.filter((a) => a.id !== (submitAction?.id || 'auth-submit') && !selectionIds.has(a.id));
-
-  const handleInputAction = (actionId: string) => {
-    const action = actions?.find((a) => a.id === actionId);
-    if (!action) return;
-    if (action.id === 'auth-sn' && !action.payload) return;
-
-    const rawValue = inputValues[actionId] ?? '';
-    const normalized =
-      actionId === 'auth-download' || actionId === 'auth-upload'
-        ? normalizeSpeedProfile(rawValue)
-        : rawValue;
-    const value = normalized.trim();
-    if (!value) return;
-
-    if (actionId === 'auth-zone') {
-      fetchOdbOptionsForZone(value);
-      // No enviar mensaje al chat para la zona; solo actualizamos CTOs disponibles
-      setInputValues((prev) => ({ ...prev, [actionId]: value }));
-      return;
-    }
-
-    const payload = resolvePayload(action.payload, value) || `${action.label}: ${value}`;
-    onActionSelect?.(payload);
-    setInputValues((prev) => ({ ...prev, [actionId]: normalized }));
-  };
-
-
-
-  const handleBulkSubmit = async () => {
-    const isWanFlow = submitAction?.id === 'wan-apply';
-    // Build collected object from inputs
-    const collected: Record<string, string> = {};
-    let speedValue = '';
-    for (const action of inputActions) {
-      // prefer explicit input value, otherwise use placeholder if available
-      const rawInput = (inputValues[action.id] ?? '').toString().trim();
-      const rawValue = rawInput || (action.placeholder ?? '').toString().trim();
-      if (action.id === 'auth-sn' && !action.payload) continue;
-      // Si es el campo de velocidad simétrica, guardar para ambos perfiles
-      if (action.id === 'auth-speed') {
-        speedValue = normalizeSpeedProfile(rawValue).trim();
-        continue;
-      }
-      const normalized = action.id === 'auth-download' || action.id === 'auth-upload' ? normalizeSpeedProfile(rawValue) : rawValue;
-      const value = normalized.trim();
-      if (!value) continue;
-
-      // fetch ODBs for zone but include zone in collected
-      if (action.id === 'auth-zone') {
-        fetchOdbOptionsForZone(value);
-        collected['zone'] = value;
-        setInputValues((prev) => ({ ...prev, [action.id]: normalized }));
-        continue;
-      }
-
-      // map input ids to backend field names
-      const keyMap: Record<string, string> = {
-        // Autorización SmartOLT (alta)
-        'auth-olt_id': 'olt_id',
-        'auth-pon_type': 'pon_type',
-        'auth-board': 'board',
-        'auth-port': 'port',
-        'auth-sn': 'sn',
-        'auth-onu_type': 'onu_type',
-        'auth-onu_mode': 'onu_mode',
-        'auth-vlan': 'vlan',
-        'auth-zone': 'zone',
-        'auth-odb': 'odb',
-        'auth-odb-port': 'odb_port',
-        'auth-name': 'name',
-        'auth-address': 'address_or_comment',
-        // 'auth-download': 'download_speed_profile_name',
-        // 'auth-upload': 'upload_speed_profile_name',
-        // Configuración WAN estática
-        'wan-sn': 'sn',
-        'wan-onu_external_id': 'onu_external_id',
-        'wan-ipv4': 'ipv4_address',
-        'wan-subnet': 'subnet_mask',
-        'wan-gateway': 'gateway',
-        'wan-dns1': 'dns1',
-        'wan-dns2': 'dns2',
-      };
-
-      const mapped = keyMap[action.id] || action.id.replace(/^auth-/, '');
-
-      // Normalize VLAN: extract leading number if present
-      if (mapped === 'vlan') {
-        const m = String(value).match(/(\d{1,4})/);
-        if (m) {
-          const vlanNum = Number(m[1]);
-          if (vlanNum >= 1 && vlanNum <= 4094) {
-            collected[mapped] = String(vlanNum);
-          } else {
-            // invalid vlan number, still set numeric for backend validation
-            collected[mapped] = String(vlanNum);
-          }
-        } else {
-          // no numeric VLAN found, skip
-        }
-      } else {
-        collected[mapped] = normalized;
-      }
-
-      setInputValues((prev) => ({ ...prev, [action.id]: normalized }));
-    }
-
-    // Si hay valor de velocidad simétrica, setear ambos perfiles
-    if (speedValue) {
-      collected['download_speed_profile_name'] = speedValue;
-      collected['upload_speed_profile_name'] = speedValue;
-    }
-
-    // Si hay selección previa de ONU, rellenar automáticamente OLT ID, Board y Port
-    if (selectedOnu) {
-      if (selectedOnu.oltId) collected["olt_id"] = selectedOnu.oltId;
-      if (selectedOnu.board) collected["board"] = selectedOnu.board;
-      if (selectedOnu.port) collected["port"] = selectedOnu.port;
-      if (selectedOnu.ponType) collected["pon_type"] = selectedOnu.ponType;
-    }
-
-    if (isWanFlow && onSubmitWan) {
-      try {
-        await onSubmitWan(collected);
-      } catch (err) {
-        console.error('submitWan failed', err);
-      }
-      return;
-    }
-
-    if (!isWanFlow && onSubmitAuth) {
-      try {
-        await onSubmitAuth(collected);
-      } catch (err) {
-        console.error('submitAuth failed', err);
-      }
-      return;
-    }
-
-    // Fallback solo para flujos basados en comandos de chat (autorización clásica)
-    if (!isWanFlow) {
-      inputActions.forEach((action) => {
-        const rawValue = inputValues[action.id] ?? '';
-        if (action.id === 'auth-sn' && !action.payload) return;
-        const normalized =
-          action.id === 'auth-download' || action.id === 'auth-upload'
-            ? normalizeSpeedProfile(rawValue)
-            : rawValue;
-        const value = normalized.trim();
-        if (!value) return;
-        if (action.id === 'auth-zone') {
-          fetchOdbOptionsForZone(value);
-          return; // no enviamos la zona al chat en el submit masivo
-        }
-        const payload = resolvePayload(action.payload, value) || `${action.label}: ${value}`;
-        onActionSelect?.(payload);
-        setInputValues((prev) => ({ ...prev, [action.id]: normalized }));
-      });
-
-      if (submitAction) {
-        const payload = resolvePayload(submitAction.payload) || submitAction.label;
-        onActionSelect?.(payload);
-      }
-    }
-  };
-
-  const renderUserMessage = () => (
-    <div className="flex flex-col items-end">
-      <div className="text-xs text-neutral-500 mb-1.5 mr-1 font-medium">
-        {authUser?.username ?? authUser?.displayName ?? authUser?.email ?? 'Tú'}
-      </div>
-      <div className="inline-block max-w-[90%] sm:max-w-[85%] bg-gradient-to-br from-neutral-800 to-neutral-850 text-neutral-50 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl shadow-sm text-sm sm:text-[15px] leading-[1.7] whitespace-pre-wrap break-words border border-neutral-700/60">
-        {displayedContent}
-        {imageDataUrl && (
-          <div className="mt-3">
-            <img
-              src={imageDataUrl}
-              alt="Imagen enviada"
-              className="max-h-64 rounded-xl border border-neutral-700 object-contain bg-neutral-900 shadow-md"
-            />
+  return (
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/40' : ''} px-2`}>
+      <div className="w-full max-w-4xl flex gap-3 items-start py-4">
+        {!isUser && (
+          <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400">
+            <span className="text-xs font-bold">AI</span>
           </div>
         )}
-      </div>
-      {createdAt && (
-        <div className="mt-1 mr-2 text-[11px] text-neutral-500">
-          {new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </div>
-      )}
-    </div>
-  );
-
-  const renderSmartoltAvailability = () => {
-    const olts = smartoltAvailability?.olts || [];
-    if (!olts.length) return null;
-
-    return (
-      <div className="mt-4 space-y-3">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-neutral-500 font-semibold">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
-          Disponibilidad SmartOLT
-        </div>
-
-        <div className="grid grid-cols-1 gap-3">
-          {olts.map((olt) => (
-            <div
-              key={olt.oltId}
-              className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-3 sm:p-4 shadow-sm shadow-black/10"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="space-y-0.5">
-                  <div className="text-sm font-semibold text-neutral-100">
-                    {olt.oltName || 'OLT'}{olt.oltId ? ` [${olt.oltId}]` : ''}
+        
+        <div className="flex-1 group min-w-0">
+          {isUser ? (
+            <div className="flex flex-col items-end">
+              <div className="text-xs text-neutral-500 mb-1.5 mr-1 font-medium">{authUser?.username || 'Tú'}</div>
+              <div className="inline-block max-w-[90%] bg-neutral-800 text-neutral-50 px-4 py-2.5 rounded-2xl border border-neutral-700/60 text-[15px] whitespace-pre-wrap">
+                {displayedContent}
+                {imageDataUrl && (
+                  <div className="mt-3 relative group/img overflow-hidden rounded-xl border border-neutral-700">
+                    <img 
+                      src={imageDataUrl} 
+                      alt="Enviada" 
+                      className="max-h-64 w-auto object-cover cursor-pointer hover:scale-105 transition-transform duration-500" 
+                      onClick={() => setIsZoomed(true)}
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                      <Maximize2 className="text-white/80 size-6" />
+                    </div>
                   </div>
-                  <div className="text-xs text-neutral-500">
-                    {olt.availableCount ?? olt.onus.length} ONUs libres
+                )}
+              </div>
+              {createdAt && <div className="mt-1 mr-2 text-[10px] text-neutral-500">{new Date(createdAt).toLocaleTimeString()}</div>}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="text-neutral-50 text-sm sm:text-[15px] leading-[1.8] whitespace-pre-wrap break-words">
+                {cleanContent}
+                {isTyping && <span className="inline-block w-1.5 h-5 bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
+                
+                {imageDataUrl && (
+                  <div className="mt-4 relative group/img max-w-sm sm:max-w-md">
+                    <div className="relative overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl transition-all hover:border-emerald-500/50">
+                      <img 
+                        src={imageDataUrl} 
+                        alt="Evidencia técnica" 
+                        className="w-full h-auto max-h-[400px] object-cover cursor-pointer transition-transform duration-500 group-hover/img:scale-105"
+                        onClick={() => setIsZoomed(true)}
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                        <Button 
+                          size="icon" 
+                          variant="secondary" 
+                          className="rounded-full bg-white/10 backdrop-blur-md border-white/20 hover:bg-white/20"
+                          onClick={() => setIsZoomed(true)}
+                        >
+                          <Maximize2 className="size-4 text-white" />
+                        </Button>
+                        <Button 
+                          size="icon" 
+                          variant="secondary" 
+                          className="rounded-full bg-white/10 backdrop-blur-md border-white/20 hover:bg-white/20"
+                          onClick={() => downloadImage(imageDataUrl)}
+                        >
+                          <Download className="size-4 text-white" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] text-neutral-300 pointer-events-none">
+                      <Eye className="size-3" /> Click para ampliar
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
-              <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800/70 bg-neutral-950/70">
-                <div className="grid grid-cols-12 px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-500 border-b border-neutral-800/70">
-                  <div className="col-span-5 sm:col-span-6">ONU</div>
-                  <div className="col-span-2 sm:col-span-2">PON</div>
-                  <div className="col-span-2 sm:col-span-2">Puerto</div>
-                  <div className="col-span-2 sm:col-span-1">Modelo</div>
-                  <div className="col-span-1 sm:col-span-1 text-right">Acción</div>
+              {/* INSTALACIONES PENDIENTES */}
+              {hasInstallationsTable && (
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
+                    <span className="h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_3px_rgba(99,102,241,0.15)]" />
+                    Instalaciones Pendientes
+                  </div>
+                  <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden">
+                    <div className="grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
+                      <div className="col-span-1">ID</div>
+                      <div className="col-span-4">Cliente</div>
+                      <div className="col-span-5">Dirección</div>
+                      <div className="col-span-2 text-right">Acción</div>
+                    </div>
+                    <div className="divide-y divide-neutral-800/60">
+                      {installations.map((inst) => (
+                        <div key={inst.id} className="grid grid-cols-12 items-center px-4 py-3 gap-2 text-sm text-neutral-100 hover:bg-neutral-800/40 transition-colors group">
+                          <div className="col-span-1 font-mono text-xs text-neutral-500">{inst.id}</div>
+                          <div className="col-span-4 font-medium truncate" title={inst.clientName}>{inst.clientName}</div>
+                          <div className="col-span-5 text-xs text-neutral-400 truncate flex items-center gap-1.5">
+                            <MapPin className="size-3 shrink-0" /> {inst.address}
+                          </div>
+                          <div className="col-span-2 text-right">
+                            <Button size="sm" onClick={() => inst.actionPayload && onActionSelect?.(inst.actionPayload)} className="h-7 text-[11px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20">
+                              Autorizar
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+              )}
 
-                <div className="divide-y divide-neutral-800/60">
-                  {olt.onus.map((onu) => (
-                    <div
-                      key={`${olt.oltId}-${onu.id}`}
-                      className="grid grid-cols-12 items-center px-3 py-2 gap-2 text-sm text-neutral-100"
-                    >
-                      <div className="col-span-5 sm:col-span-6 truncate" title={onu.label}>{onu.label}</div>
-                      <div className="col-span-2 sm:col-span-2 text-neutral-400 uppercase">{onu.ponType || 'gpon'}</div>
-                      <div className="col-span-2 sm:col-span-2 text-neutral-400">{onu.port || '-'}</div>
-                      <div className="col-span-2 sm:col-span-1 text-neutral-400 truncate" title={onu.model || '-'}>{onu.model || '-'}</div>
-                      <div className="col-span-1 sm:col-span-1 text-right">
-                        <Button
-                          size="sm"
-                          onClick={() => handleOnuSelect(onu, olt)}
-                          className="h-8 text-[12px] rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white shadow-sm hover:shadow-md px-3"
-                        >
-                          Activar
-                        </Button>
+              {/* TABLA SMARTOLT */}
+              {hasSmartoltTable && (
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> Disponibilidad SmartOLT
+                  </div>
+                  {smartoltAvailability?.olts?.map((olt) => (
+                    <div key={olt.oltId} className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 shadow-sm">
+                      <div className="flex justify-between items-center mb-4">
+                        <div className="text-sm font-bold text-emerald-500 uppercase tracking-wider">
+                          {olt.oltName || 'OLT'}
+                        </div>
+                        <span className="text-[10px] bg-neutral-800 text-neutral-400 px-2 py-1 rounded">
+                          {olt.onus.length} ONUs detectadas
+                        </span>
+                      </div>
+                      <div className="overflow-hidden rounded-lg border border-neutral-800/70 bg-black/20">
+                        <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 bg-neutral-800/50 text-[11px] font-bold text-neutral-500 uppercase">
+                          <div className="col-span-2">Label / SN</div>
+                          <div className="col-span-1">Tipo</div>
+                          <div className="col-span-2 text-center">Puerto (B/P/PON)</div>
+                          <div className="col-span-4">Descripción</div>
+                          <div className="col-span-2 text-center">Modelo</div>
+                          <div className="col-span-1 text-right">Acción</div>
+                        </div>
+                        <div className="divide-y divide-neutral-800">
+                          {olt.onus.map((onu) => (
+                            <div key={onu.id} className="grid grid-cols-12 items-center gap-2 px-4 py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
+                              <div className="col-span-12 md:col-span-2 flex flex-col">
+                                <span className="font-medium text-neutral-200 truncate">{onu.label}</span>
+                                <span className="text-[10px] font-mono text-neutral-500 uppercase">{onu.sn || 'Sin SN'}</span>
+                              </div>
+                              <div className="col-span-4 md:col-span-1">
+                                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
+                                  {onu.ponType || 'GPON'}
+                                </span>
+                              </div>
+                              <div className="col-span-4 md:col-span-2 text-center font-mono text-neutral-300">
+                                {onu.board}/{onu.port}/{onu.ponPort}
+                              </div>
+                              <div className="col-span-12 md:col-span-4 text-xs text-neutral-400 italic truncate">
+                                {onu.description || 'Sin descripción'}
+                              </div>
+                              <div className="col-span-4 md:col-span-2 text-center text-neutral-400">
+                                {onu.type || onu.model || 'N/A'}
+                              </div>
+                              <div className="col-span-12 md:col-span-1 text-right">
+                                <Button 
+                                  size="sm" 
+                                  onClick={() => handleOnuSelect(onu, olt)} 
+                                  className="w-full md:w-auto h-8 px-4 text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20"
+                                >
+                                  Usar
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+              )}
 
-  const renderAssistantMessage = () => (
-    <div className="flex flex-col gap-3">
-      <div className="text-neutral-50 text-sm sm:text-[15px] leading-[1.8] whitespace-pre-wrap break-words">
-        {displayedContent}
-        {isTyping && <span className="inline-block w-1.5 h-5 bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
-        {imageDataUrl && (
-          <div className="mt-3">
-            <img
-              src={imageDataUrl}
-              alt="Imagen recibida"
-              className="max-h-64 rounded-xl border border-neutral-700 object-contain bg-neutral-900 shadow-md"
-            />
-          </div>
-        )}
-      </div>
-
-      {renderSmartoltAvailability()}
-
-      {actions && actions.length > 0 && (
-        <div className="mt-1 space-y-4">
-          {selectionButtonsToRender.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-              {selectionButtonsToRender.map((action) => (
-                <Button
-                  key={action.id}
-                  size="sm"
-                  onClick={() => onActionSelect?.(resolvePayload(action.payload) || action.label)}
-                  className="h-9 text-xs rounded-lg bg-neutral-100 text-neutral-900 hover:bg-white transition-colors shadow-sm hover:shadow-md truncate"
-                  title={action.label}
-                >
-                  {action.label}
-                </Button>
-              ))}
-            </div>
-          )}
-
-          {otherButtons.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {otherButtons.map((action) => (
-                <Button
-                  key={action.id}
-                  size="sm"
-                  onClick={() => onActionSelect?.(resolvePayload(action.payload) || action.label)}
-                  className="h-8 text-xs rounded-lg bg-neutral-100 text-neutral-900 hover:bg-white transition-colors shadow-sm hover:shadow-md"
-                >
-                  {action.label}
-                </Button>
-              ))}
-            </div>
-          )}
-
-          {inputActions.length > 0 && (
-            <div className="space-y-3">
-              {inputActions.map((action) => (
-                <div key={action.id} className="space-y-1.5">
-                  <div className="text-xs text-neutral-400 font-medium">{action.label}</div>
-
-                  {action.options && action.options.length > 0 ? (
-                    <SearchableSelect
-                      action={action}
-                      value={inputValues[action.id] ?? ''}
-                      onChange={(val) => {
-                        setInputValues((prev) => ({ ...prev, [action.id]: val }));
-
-                        if (action.id === 'auth-zone') {
-                          fetchOdbOptionsForZone(val);
-                          // No enviamos mensaje automático; solo cargamos CTOs para la zona
-                        }
-                        if (action.id === 'auth-odb') {
-                          fetchPortsForOdb(val);
-                        }
-                      }}
-                    />
-                  ) : (
-                    <Input
-                      value={
-                        action.id === 'auth-sn' && !action.payload
-                          ? inputValues[action.id] ?? action.placeholder ?? ''
-                          : inputValues[action.id] ?? ''
+              {/* ACCIONES (BOTONES/INPUTS) */}
+              <div className="mt-1 space-y-4">
+                {selectionButtonsToRender.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {selectionButtonsToRender.map(a => (
+                      <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-9 bg-neutral-100 text-neutral-900 hover:bg-white truncate">
+                        {a.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+                
+                {otherButtons.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {otherButtons.map(a => {
+                      if (a.type === 'link' && a.url) {
+                        const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
+                        return (
+                          <a 
+                            key={a.id} href={href} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center rounded-md text-sm font-medium h-8 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 px-3 no-underline"
+                          >
+                            {a.label}
+                          </a>
+                        );
                       }
-                      disabled={action.id === 'auth-sn' && !action.payload}
-                      onChange={(e) => setInputValues((prev) => ({ ...prev, [action.id]: e.target.value }))}
-                      onBlur={(e) => {
-                        const val = e.target.value;
-                        if (action.id === 'auth-download' || action.id === 'auth-upload') {
-                          setInputValues((prev) => ({ ...prev, [action.id]: normalizeSpeedProfile(val) }));
-                        }
-                      }}
-                      placeholder={action.placeholder}
-                      className="h-9 bg-neutral-900 border-neutral-800 text-neutral-50 text-sm focus-visible:ring-emerald-500/40"
-                    />
-                  )}
+                      return (
+                        <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-8 bg-neutral-800 text-neutral-300 hover:bg-neutral-700">
+                          {a.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                )}
 
-                  {action.helperText && (
-                    <p className="text-[11px] text-neutral-500 leading-relaxed">{action.helperText}</p>
-                  )}
+                {inputActions.length > 0 && (
+                  <div className="space-y-3 bg-neutral-900/40 p-4 rounded-xl border border-neutral-800">
+                    {inputActions.map(action => (
+                      <div key={action.id} className="space-y-1.5">
+                        <div className="text-xs text-neutral-400 font-medium">{action.label}</div>
+                        {action.options?.length ? (
+                          <SearchableSelect action={action} value={inputValues[action.id] || ''} onChange={(val) => {
+                            setInputValues(p => ({ ...p, [action.id]: val }));
+                            if (action.id === 'auth-zone') fetchOdbOptionsForZone(val);
+                            if (action.id === 'auth-odb') fetchPortsForOdb(val);
+                          }} />
+                        ) : (
+                          <Input value={inputValues[action.id] || ''} onChange={(e) => setInputValues(p => ({ ...p, [action.id]: e.target.value }))} placeholder={action.placeholder} className="h-9 bg-neutral-950 border-neutral-800" />
+                        )}
+                      </div>
+                    ))}
+                    {submitAction && (
+                      <Button className="w-full h-10 bg-emerald-500 hover:bg-emerald-400 text-white" onClick={handleBulkSubmit}>
+                        {submitAction.label}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
 
-                  {!submitAction && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleInputAction(action.id)}
-                      className="h-8 text-xs rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white shadow-sm hover:shadow-md"
-                    >
-                      Enviar
+              {/* FOOTER */}
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                {hasVersions && (
+                  <div className="flex items-center gap-1 bg-neutral-800/50 rounded-lg px-1 py-1">
+                    <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'prev')} disabled={currentIdx === 0} className="h-6 w-6 p-0"><ChevronLeft className="size-3.5" /></Button>
+                    <span className="text-[10px] text-neutral-400">{currentIdx + 1}/{versions.length}</span>
+                    <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'next')} disabled={currentIdx === versions.length - 1} className="h-6 w-6 p-0"><ChevronRight className="size-3.5" /></Button>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button variant="ghost" size="sm" onClick={handleCopy} className="h-7 text-neutral-400 hover:text-white">
+                    {copied ? <Check className="size-3.5 mr-1 text-emerald-400" /> : <Copy className="size-3.5 mr-1" />}
+                    {copied ? 'Copiado' : 'Copiar'}
+                  </Button>
+                  {isLatest && onRetry && (
+                    <Button variant="ghost" size="sm" onClick={onRetry} className="h-7 text-neutral-400 hover:text-white">
+                      <RotateCcw className="size-3.5 mr-1" /> Reintentar
                     </Button>
                   )}
                 </div>
-              ))}
-
-              {submitAction && (
-                <div className="pt-1">
-                  <Button
-                    size="sm"
-                    className="w-full h-10 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white shadow-sm hover:shadow-md"
-                    onClick={handleBulkSubmit}
-                  >
-                    Autorizar
-                  </Button>
-                  <p className="mt-1 text-[11px] text-neutral-500 leading-relaxed">
-                    Se enviarán los valores cargados y se confirmará la autorización en un solo paso.
-                  </p>
-                </div>
-              )}
+              </div>
+              {createdAt && <div className="text-[10px] text-neutral-500">{new Date(createdAt).toLocaleTimeString()}</div>}
             </div>
           )}
         </div>
-      )}
+      </div>
 
-      <div className="flex items-center gap-1.5 sm:gap-2 mt-2 sm:mt-3 flex-wrap">
-        {hasVersions && (
-          <div className="flex items-center gap-1 sm:gap-1.5 mr-2 bg-neutral-800/50 rounded-lg px-1.5 py-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onVersionChange?.(messageId, 'prev')}
-              disabled={currentIdx === 0}
-              className="h-6 w-6 p-0 text-neutral-400 hover:text-white hover:bg-neutral-700/70 disabled:opacity-30 disabled:hover:bg-transparent rounded-md transition-all duration-200"
-            >
-              <ChevronLeft className="size-3.5" />
-            </Button>
-            <span className="text-xs text-neutral-400 px-1 min-w-[30px] sm:min-w-[35px] text-center font-medium">
-              {currentIdx + 1}/{versions.length}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onVersionChange?.(messageId, 'next')}
-              disabled={currentIdx === versions.length - 1}
-              className="h-6 w-6 p-0 text-neutral-400 hover:text-white hover:bg-neutral-700/70 disabled:opacity-30 disabled:hover:bg-transparent rounded-md transition-all duration-200"
-            >
-              <ChevronRight className="size-3.5" />
-            </Button>
-          </div>
-        )}
-
-        <div className="flex items-center gap-1 sm:gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-200">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleCopy}
-            className="h-7 px-2 sm:px-2.5 text-xs text-neutral-400 hover:text-white hover:bg-neutral-800/70 rounded-lg transition-all duration-200 font-medium"
+      {/* --- MODAL DE ZOOM --- */}
+      {isZoomed && imageDataUrl && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-200"
+          onClick={() => setIsZoomed(false)}
+        >
+          <Button 
+            className="absolute top-6 right-6 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white z-[101]"
+            size="icon"
+            onClick={(e) => { e.stopPropagation(); setIsZoomed(false); }}
           >
-            {copied ? (
-              <>
-                <Check className="size-3.5 mr-1 sm:mr-1.5 text-emerald-400" />
-                <span className="text-emerald-400 hidden sm:inline">Copied</span>
-              </>
-            ) : (
-              <>
-                <Copy className="size-3.5 sm:mr-1.5" />
-                <span className="hidden sm:inline">Copy</span>
-              </>
-            )}
+            <X className="size-5" />
           </Button>
-          {isLatest && onRetry && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRetry}
-              className="h-7 px-2 sm:px-2.5 text-xs text-neutral-400 hover:text-white hover:bg-neutral-800/70 rounded-lg transition-all duration-200 font-medium"
-            >
-              <RotateCcw className="size-3.5 sm:mr-1.5" />
-              <span className="hidden sm:inline">Retry</span>
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {createdAt && (
-        <div className="text-[11px] text-neutral-500">
-          {new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          
+          <img 
+            src={imageDataUrl} 
+            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            alt="Zoom"
+            onClick={(e) => e.stopPropagation()} 
+          />
+          
+          <div className="absolute bottom-8 flex gap-4 z-[101]">
+             <Button 
+               onClick={(e) => { e.stopPropagation(); downloadImage(imageDataUrl); }}
+               className="bg-emerald-600 hover:bg-emerald-500 text-white"
+             >
+               <Download className="size-4 mr-2" /> Descargar Original
+             </Button>
+          </div>
         </div>
       )}
-    </div>
-  );
-
-  return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/60' : ''}`}>
-      <div className="w-full max-w-4xl flex gap-3 items-start py-2">
-        {!isUser && (
-          <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400 shadow-sm">
-            <span className="text-sm font-semibold">AI</span>
-          </div>
-        )}
-        <div className="flex-1 group">
-          {isUser ? renderUserMessage() : renderAssistantMessage()}
-        </div>
-      </div>
     </div>
   );
 }
