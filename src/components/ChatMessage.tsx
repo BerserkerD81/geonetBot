@@ -250,6 +250,9 @@ export function ChatMessage({
     onuId?: string;
   } | null>(null);
 
+  // --- NUEVO ESTADO PARA EL ERROR DE WIFI ---
+  const [wifiError, setWifiError] = useState<string | null>(null);
+
   // Animación
   const [displayedContent, setDisplayedContent] = useState(shouldAnimate && !isUser ? '' : content);
   const [isTyping, setIsTyping] = useState(false);
@@ -312,7 +315,7 @@ export function ChatMessage({
     };
   }, [content, shouldAnimate, isUser]);
 
-  // Fetching dinámico (CORREGIDO TIPOS AQUÍ)
+  // Fetching dinámico
   const fetchOdbOptionsForZone = async (zone: string) => {
     const trimmed = zone.trim();
     if (!trimmed) return;
@@ -321,7 +324,6 @@ export function ChatMessage({
       const data = await res.json();
       if (Array.isArray(data?.odbs)) {
         const odbMap: Record<string, string> = {};
-        // FIX: Usamos OdbApiResponseItem en lugar de any
         const options = data.odbs.map((o: OdbApiResponseItem) => {
             if (o?.name && o?.externalId) odbMap[o.name] = String(o.externalId);
             return o?.name || (o?.id ? String(o.id) : '');
@@ -332,7 +334,6 @@ export function ChatMessage({
     } catch (err) { console.error(err); }
   };
 
-  // (CORREGIDO TIPOS AQUÍ)
   const fetchPortsForOdb = async (odbNameOrId: string) => {
     const externalId = odbNameToExternalId[odbNameOrId] || odbNameOrId;
     if (!externalId) return;
@@ -340,7 +341,6 @@ export function ChatMessage({
       const res = await fetch(`${API_BASE}/api/odbs/${encodeURIComponent(externalId)}/ports`, { credentials: 'include', cache: 'no-store' });
       const data = await res.json();
       if (Array.isArray(data?.ports)) {
-        // FIX: Usamos PortApiResponseItem en lugar de any
         const portOptions = data.ports.map((p: PortApiResponseItem) => 
           typeof p === 'object' ? String(p.port) : String(p)
         );
@@ -370,7 +370,6 @@ export function ChatMessage({
     return actionPayload || value || '';
   };
 
-  // (CORREGIDO TIPOS AQUÍ)
   const handleOnuSelect = (onu: OnuEntry, olt: OltEntry) => {
     setSelectedOnu({ oltId: olt.oltId, board: onu.board, port: onu.port, ponType: onu.ponType, onuId: onu.id });
     if (onu.actionPayload) onActionSelect?.(onu.actionPayload);
@@ -399,13 +398,11 @@ export function ChatMessage({
     return filtered;
   }, [safeActions, selectedOnu, dynamicOptions, inputValues]);
 
-  // Aquí filtramos los botones. Si hasSmartoltTable es true, eliminamos botones de selección de ONU
+  // Aquí filtramos los botones
   const buttonActions = safeActions
     .filter((a) => a.type === 'button' || a.type === 'link')
     .filter((a) => {
-      // OCULTAR BOTONES REDUNDANTES SI YA HAY TABLA
       if (hasSmartoltTable) {
-        // Busca ids tipo 'select-onu-xx' o payloads que digan 'seleccionar onu'
         if (a.id.includes('select-onu') || (a.payload || '').toLowerCase().includes('seleccionar onu')) {
           return false;
         }
@@ -415,14 +412,10 @@ export function ChatMessage({
 
   const submitAction = buttonActions.find((a) => a.id === 'auth-submit' || a.id === 'wan-apply' || a.id === 'wifi_submit');
   
-  // Filtramos botones de selección (ej: sugerencias de texto) que NO sean de ONU (ya filtrados arriba)
   const selectionButtonsToRender = buttonActions.filter((a) => {
     const isSelection = a.id.startsWith('select') || (a.payload || '').toLowerCase().includes('seleccionar');
     if (!isSelection) return false;
-    
-    // También ocultamos botones de instalación si ya hay tabla de instalaciones
     if (hasInstallationsTable && (a.id.startsWith('select-installation-') || installations.some(i => i.actionPayload === a.payload))) return false;
-    
     return true;
   });
 
@@ -433,6 +426,21 @@ export function ChatMessage({
   const handleBulkSubmit = async () => {
     const isWanFlow = submitAction?.id === 'wan-apply';
     const isWifiFlow = submitAction?.id === 'wifi_submit'; 
+    
+    // --- LÓGICA DE VALIDACIÓN WIFI ---
+    if (isWifiFlow) {
+      const pass = inputValues['wifi_pass'] || '';
+      // Regex: Min 8 chars, 1 mayúscula (A-Z), 1 dígito (\d)
+      const passRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
+      
+      if (!passRegex.test(pass)) {
+        setWifiError("La contraseña debe tener mín. 8 caracteres, 1 mayúscula y 1 número.");
+        return; // Detener envío
+      }
+      setWifiError(null);
+    }
+    // ---------------------------------
+
     const collected: Record<string, string> = {};
     let speedValue = '';
 
@@ -684,12 +692,34 @@ export function ChatMessage({
                             if (action.id === 'auth-odb') fetchPortsForOdb(val);
                           }} />
                         ) : (
-                          <Input value={inputValues[action.id] || ''} onChange={(e) => setInputValues(p => ({ ...p, [action.id]: e.target.value }))} placeholder={action.placeholder} className="h-9 bg-neutral-950 border-neutral-800" />
+                          // --- AQUÍ APLICAMOS LA VALIDACIÓN VISUAL EN EL INPUT ---
+                          <>
+                            <Input 
+                              value={inputValues[action.id] || ''} 
+                              // Tipo password para wifi_pass
+                              type={action.id === 'wifi_pass' ? 'password' : 'text'}
+                              onChange={(e) => {
+                                setInputValues(p => ({ ...p, [action.id]: e.target.value }));
+                                // Limpiamos el error si el usuario escribe en el campo de pass
+                                if (action.id === 'wifi_pass') setWifiError(null);
+                              }} 
+                              placeholder={action.placeholder} 
+                              className={`h-9 bg-neutral-950 border-neutral-800 ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500' : ''}`} 
+                            />
+                            {action.id === 'wifi_pass' && wifiError && (
+                              <span className="text-[10px] text-red-500 mt-1 block">{wifiError}</span>
+                            )}
+                          </>
                         )}
                       </div>
                     ))}
                     {submitAction && (
-                      <Button className="w-full h-10 bg-emerald-500 hover:bg-emerald-400 text-white" onClick={handleBulkSubmit}>
+                      <Button 
+                        className={`w-full h-10 bg-emerald-500 hover:bg-emerald-400 text-white ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        onClick={handleBulkSubmit}
+                        // Opcionalmente deshabilitamos el botón nativamente si hay error
+                        disabled={submitAction.id === 'wifi_submit' && !!wifiError}
+                      >
                         {submitAction.label}
                       </Button>
                     )}
@@ -747,12 +777,12 @@ export function ChatMessage({
           />
           
           <div className="absolute bottom-8 flex gap-4 z-[101]">
-             <Button 
-               onClick={(e) => { e.stopPropagation(); downloadImage(imageDataUrl); }}
-               className="bg-emerald-600 hover:bg-emerald-500 text-white"
-             >
-               <Download className="size-4 mr-2" /> Descargar Original
-             </Button>
+            <Button 
+              onClick={(e) => { e.stopPropagation(); downloadImage(imageDataUrl); }}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white"
+            >
+              <Download className="size-4 mr-2" /> Descargar Original
+            </Button>
           </div>
         </div>
       )}
