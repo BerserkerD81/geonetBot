@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { 
   Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
-  Copy, RotateCcw, MapPin, Maximize2, Download, Eye, X 
+  Copy, RotateCcw, MapPin, Maximize2, Download, Eye, X, ImageOff, Loader2
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -11,7 +11,6 @@ import { useAuth } from '../contexts/AuthContext';
 
 // --- TIPOS ---
 
-// 1. Tipos reutilizables para ONUs y OLTs
 type OnuEntry = {
   id: string;
   label: string;
@@ -33,7 +32,6 @@ type OltEntry = {
   onus: OnuEntry[];
 };
 
-// 2. Tipos para respuestas de API interna
 type OdbApiResponseItem = {
   id?: string | number;
   name?: string;
@@ -94,14 +92,30 @@ interface ChatMessageProps {
 }
 
 // --- UTILIDADES ---
+
+// 1. Resolver API URL base
 const API_BASE = (() => {
   const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
   if (envApi && envApi.trim()) {
     return envApi.startsWith('http') ? envApi : `http://${envApi}`;
   }
   const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:3000`;
+  // Ajusta este puerto si tu backend corre en otro (ej: 3000, 4000)
+  return `${protocol}//${hostname}:3000`; 
 })();
+
+// 2. Normalizar URL de imagen (SOLUCIÓN AL PROBLEMA DE IMÁGENES ROTAS)
+const resolveImageUrl = (url?: string) => {
+  if (!url) return null;
+  // Si ya es absoluta (http...) o base64 (data:...), la dejamos igual
+  if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  // Si es relativa (ej: /uploads/img.png), le pegamos el dominio del backend
+  const cleanBase = API_BASE.replace(/\/+$/, '');
+  const cleanPath = url.replace(/^\/+/, '');
+  return `${cleanBase}/${cleanPath}`;
+};
 
 const normalizeSpeedProfile = (val: string) => {
   const raw = (val || '').trim();
@@ -210,8 +224,81 @@ function SearchableSelect({
   );
 }
 
-// --- COMPONENTE PRINCIPAL ---
+// --- NUEVO COMPONENTE: PREVISUALIZACIÓN DE IMAGEN ---
+function ImagePreview({ 
+  src, 
+  alt, 
+  className, 
+  onClick, 
+  onDownload 
+}: { 
+  src: string; 
+  alt: string; 
+  className?: string; 
+  onClick?: () => void;
+  onDownload?: () => void;
+}) {
+  const [status, setStatus] = useState<'loading' | 'error' | 'success'>('loading');
+  const finalSrc = resolveImageUrl(src);
 
+  if (!finalSrc) return null;
+
+  return (
+    <div className={`relative overflow-hidden bg-neutral-950 ${className}`}>
+      {/* Estado Loading */}
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-900/50 z-10">
+          <Loader2 className="h-6 w-6 text-emerald-500 animate-spin" />
+        </div>
+      )}
+      
+      {/* Estado Error */}
+      {status === 'error' && (
+        <div className="flex flex-col items-center justify-center w-full h-full min-h-[150px] bg-neutral-900 text-neutral-500 gap-2 p-4 border border-neutral-800 rounded-lg">
+          <ImageOff className="h-8 w-8 opacity-50" />
+          <span className="text-xs text-center">No se pudo cargar la imagen</span>
+        </div>
+      )}
+
+      {/* Imagen Real */}
+      <img 
+        src={finalSrc} 
+        alt={alt}
+        className={`w-full h-full transition-opacity duration-300 ${status === 'success' ? 'opacity-100' : 'opacity-0'}`}
+        onLoad={() => setStatus('success')}
+        onError={() => setStatus('error')}
+        onClick={status === 'success' ? onClick : undefined}
+      />
+
+      {/* Overlay de acciones (solo si cargó bien) */}
+      {status === 'success' && (
+        <>
+           <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-3 cursor-pointer" onClick={onClick}>
+             <Button size="icon" variant="secondary" className="rounded-full bg-white/10 backdrop-blur-md border-white/20 hover:bg-white/20">
+               <Maximize2 className="size-4 text-white" />
+             </Button>
+             {onDownload && (
+               <Button 
+                 size="icon" 
+                 variant="secondary" 
+                 className="rounded-full bg-white/10 backdrop-blur-md border-white/20 hover:bg-white/20"
+                 onClick={(e) => { e.stopPropagation(); onDownload(); }}
+               >
+                 <Download className="size-4 text-white" />
+               </Button>
+             )}
+           </div>
+           {/* Etiqueta inferior */}
+           <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] text-neutral-300 pointer-events-none">
+             <Eye className="size-3" /> Click para ampliar
+           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// --- COMPONENTE PRINCIPAL ---
 export function ChatMessage({
   role,
   content,
@@ -250,17 +337,14 @@ export function ChatMessage({
     onuId?: string;
   } | null>(null);
 
-  // --- NUEVO ESTADO PARA EL ERROR DE WIFI ---
   const [wifiError, setWifiError] = useState<string | null>(null);
 
   // Animación
   const [displayedContent, setDisplayedContent] = useState(shouldAnimate && !isUser ? '' : content);
   const [isTyping, setIsTyping] = useState(false);
 
-  // Memoización de datos
+  // Memoización
   const smartoltAvailability = (metadata?.smartoltAvailability as SmartoltAvailability | undefined) || null;
-  
-  // 1. Detectamos si hay tablas
   const hasSmartoltTable = Boolean(smartoltAvailability?.olts?.length);
   
   const installations: InstallationEntry[] = useMemo(() => {
@@ -359,8 +443,10 @@ export function ChatMessage({
   };
 
   const downloadImage = (url: string) => {
+    const fullUrl = resolveImageUrl(url);
+    if(!fullUrl) return;
     const link = document.createElement('a');
-    link.href = url;
+    link.href = fullUrl;
     link.download = `smartolt-evidencia-${Date.now()}.png`;
     link.click();
   };
@@ -375,10 +461,7 @@ export function ChatMessage({
     if (onu.actionPayload) onActionSelect?.(onu.actionPayload);
   };
 
-  // -------------------------------------------------------------
-  // LÓGICA DE FILTRADO DE ACCIONES
-  // -------------------------------------------------------------
-  
+  // Filtrado de acciones
   const safeActions = useMemo(() => (Array.isArray(actions) ? actions.filter((a) => a?.type) : []), [actions]);
   
   const inputActions = useMemo(() => {
@@ -398,7 +481,6 @@ export function ChatMessage({
     return filtered;
   }, [safeActions, selectedOnu, dynamicOptions, inputValues]);
 
-  // Aquí filtramos los botones
   const buttonActions = safeActions
     .filter((a) => a.type === 'button' || a.type === 'link')
     .filter((a) => {
@@ -422,24 +504,20 @@ export function ChatMessage({
   const selectionIds = new Set(selectionButtonsToRender.map(a => a.id));
   const otherButtons = buttonActions.filter(a => a.id !== submitAction?.id && !selectionIds.has(a.id) && !a.id.startsWith('select-installation-'));
   
-  // Submit handler
   const handleBulkSubmit = async () => {
     const isWanFlow = submitAction?.id === 'wan-apply';
     const isWifiFlow = submitAction?.id === 'wifi_submit'; 
     
-    // --- LÓGICA DE VALIDACIÓN WIFI ---
     if (isWifiFlow) {
       const pass = inputValues['wifi_pass'] || '';
-      // Regex: Min 8 chars, 1 mayúscula (A-Z), 1 dígito (\d)
       const passRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
       
       if (!passRegex.test(pass)) {
         setWifiError("La contraseña debe tener mín. 8 caracteres, 1 mayúscula y 1 número.");
-        return; // Detener envío
+        return; 
       }
       setWifiError(null);
     }
-    // ---------------------------------
 
     const collected: Record<string, string> = {};
     let speedValue = '';
@@ -490,17 +568,16 @@ export function ChatMessage({
               <div className="text-xs text-neutral-500 mb-1.5 mr-1 font-medium">{authUser?.username || 'Tú'}</div>
               <div className="inline-block max-w-[90%] bg-neutral-800 text-neutral-50 px-4 py-2.5 rounded-2xl border border-neutral-700/60 text-[15px] whitespace-pre-wrap">
                 {displayedContent}
+                
+                {/* --- IMAGEN DEL USUARIO (Corregida) --- */}
                 {imageDataUrl && (
-                  <div className="mt-3 relative group/img overflow-hidden rounded-xl border border-neutral-700">
-                    <img 
-                      src={imageDataUrl} 
-                      alt="Enviada" 
-                      className="max-h-64 w-auto object-cover cursor-pointer hover:scale-105 transition-transform duration-500" 
+                  <div className="mt-3 relative group/img overflow-hidden rounded-xl border border-neutral-700 max-w-xs">
+                    <ImagePreview 
+                      src={imageDataUrl}
+                      alt="Enviada"
                       onClick={() => setIsZoomed(true)}
+                      className="max-h-64 object-cover cursor-pointer"
                     />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                      <Maximize2 className="text-white/80 size-6" />
-                    </div>
                   </div>
                 )}
               </div>
@@ -512,42 +589,23 @@ export function ChatMessage({
                 {cleanContent}
                 {isTyping && <span className="inline-block w-1.5 h-5 bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
                 
+                {/* --- IMAGEN DEL BOT (Corregida) --- */}
                 {imageDataUrl && (
                   <div className="mt-4 relative group/img max-w-sm sm:max-w-md">
-                    <div className="relative overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl transition-all hover:border-emerald-500/50">
-                      <img 
-                        src={imageDataUrl} 
-                        alt="Evidencia técnica" 
-                        className="w-full h-auto max-h-[400px] object-cover cursor-pointer transition-transform duration-500 group-hover/img:scale-105"
-                        onClick={() => setIsZoomed(true)}
-                      />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                        <Button 
-                          size="icon" 
-                          variant="secondary" 
-                          className="rounded-full bg-white/10 backdrop-blur-md border-white/20 hover:bg-white/20"
-                          onClick={() => setIsZoomed(true)}
-                        >
-                          <Maximize2 className="size-4 text-white" />
-                        </Button>
-                        <Button 
-                          size="icon" 
-                          variant="secondary" 
-                          className="rounded-full bg-white/10 backdrop-blur-md border-white/20 hover:bg-white/20"
-                          onClick={() => downloadImage(imageDataUrl)}
-                        >
-                          <Download className="size-4 text-white" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] text-neutral-300 pointer-events-none">
-                      <Eye className="size-3" /> Click para ampliar
+                    <div className="rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl transition-all hover:border-emerald-500/50 overflow-hidden">
+                       <ImagePreview 
+                         src={imageDataUrl}
+                         alt="Evidencia técnica"
+                         onClick={() => setIsZoomed(true)}
+                         onDownload={() => downloadImage(imageDataUrl)}
+                         className="h-auto max-h-[400px] object-cover"
+                       />
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* INSTALACIONES PENDIENTES */}
+              {/* TABLAS Y ACCIONES */}
               {hasInstallationsTable && (
                 <div className="mt-4 space-y-3">
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
@@ -581,10 +639,9 @@ export function ChatMessage({
                 </div>
               )}
 
-              {/* TABLA SMARTOLT */}
               {hasSmartoltTable && (
                 <div className="mt-4 space-y-3">
-                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
+                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" /> Disponibilidad SmartOLT
                   </div>
                   {smartoltAvailability?.olts?.map((olt) => (
@@ -645,7 +702,6 @@ export function ChatMessage({
                 </div>
               )}
 
-              {/* ACCIONES (BOTONES/INPUTS) */}
               <div className="mt-1 space-y-4">
                 {selectionButtonsToRender.length > 0 && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -660,7 +716,7 @@ export function ChatMessage({
                 {otherButtons.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {otherButtons.map(a => {
-                      if (a.type === 'link' && a.url) {
+                       if (a.type === 'link' && a.url) {
                         const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
                         return (
                           <a 
@@ -692,15 +748,12 @@ export function ChatMessage({
                             if (action.id === 'auth-odb') fetchPortsForOdb(val);
                           }} />
                         ) : (
-                          // --- AQUÍ APLICAMOS LA VALIDACIÓN VISUAL EN EL INPUT ---
                           <>
                             <Input 
                               value={inputValues[action.id] || ''} 
-                              // Tipo password para wifi_pass
                               type={action.id === 'wifi_pass' ? 'password' : 'text'}
                               onChange={(e) => {
                                 setInputValues(p => ({ ...p, [action.id]: e.target.value }));
-                                // Limpiamos el error si el usuario escribe en el campo de pass
                                 if (action.id === 'wifi_pass') setWifiError(null);
                               }} 
                               placeholder={action.placeholder} 
@@ -717,7 +770,6 @@ export function ChatMessage({
                       <Button 
                         className={`w-full h-10 bg-emerald-500 hover:bg-emerald-400 text-white ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
                         onClick={handleBulkSubmit}
-                        // Opcionalmente deshabilitamos el botón nativamente si hay error
                         disabled={submitAction.id === 'wifi_submit' && !!wifiError}
                       >
                         {submitAction.label}
@@ -755,7 +807,7 @@ export function ChatMessage({
         </div>
       </div>
 
-      {/* --- MODAL DE ZOOM --- */}
+      {/* --- MODAL DE ZOOM (Corregido) --- */}
       {isZoomed && imageDataUrl && (
         <div 
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-200"
@@ -770,7 +822,7 @@ export function ChatMessage({
           </Button>
           
           <img 
-            src={imageDataUrl} 
+            src={resolveImageUrl(imageDataUrl) || imageDataUrl} 
             className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
             alt="Zoom"
             onClick={(e) => e.stopPropagation()} 
