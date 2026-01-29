@@ -1,14 +1,14 @@
-import { Send, Camera, Image as ImageIcon, X, Loader2, Paperclip } from 'lucide-react';
+import { Send, Camera, Image as ImageIcon, X, Loader2, Paperclip, FileImage } from 'lucide-react';
 import { Button } from './ui/button'; 
 import { Textarea } from './ui/textarea'; 
-import { useRef, useState, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
+import { useRef, useState, useEffect, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react';
 
 interface ChatInputProps {
   onSendMessage: (message: string, imageDataUrl?: string) => void;
   isLoading?: boolean;
 }
 
-// --- UTILIDAD: Compresión de Imágenes (Crucial para no saturar el servidor) ---
+// --- UTILIDAD: Compresión (Sin cambios en lógica) ---
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -18,7 +18,7 @@ const compressImage = (file: File): Promise<string> => {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 1280; // Max ancho HD
+        const MAX_WIDTH = 1280; 
         const MAX_HEIGHT = 1280;
         let width = img.width;
         let height = img.height;
@@ -39,8 +39,6 @@ const compressImage = (file: File): Promise<string> => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        
-        // Comprimir a JPEG calidad 0.8 (reduce de 5MB a ~300KB)
         resolve(canvas.toDataURL('image/jpeg', 0.8));
       };
       img.onerror = (error) => reject(error);
@@ -52,12 +50,21 @@ const compressImage = (file: File): Promise<string> => {
 export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
-  const [isProcessingImg, setIsProcessingImg] = useState(false); // Estado de carga local
+  const [isProcessingImg, setIsProcessingImg] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isFocused, setIsFocused] = useState(false); // Nuevo estado para estilos
   
   const fileInputCameraRef = useRef<HTMLInputElement | null>(null);
   const fileInputFileRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // --- EFECTO: Auto-resize del Textarea ---
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'; // Resetear altura
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`; // Ajustar al contenido (max 200px)
+    }
+  }, [message]);
 
   const processFile = async (file?: File) => {
     if (!file) return;
@@ -68,7 +75,6 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
 
     setIsProcessingImg(true);
     try {
-      // Comprimimos antes de setear el estado
       const compressedBase64 = await compressImage(file);
       setImageDataUrl(compressedBase64);
     } catch (error) {
@@ -76,20 +82,21 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
       alert("Error al procesar la imagen");
     } finally {
       setIsProcessingImg(false);
+      // Foco al input tras cargar imagen para seguir escribiendo rápido
+      setTimeout(() => textareaRef.current?.focus(), 100); 
     }
   };
 
   const handleSubmit = () => {
     if ((!message.trim() && !imageDataUrl) || isLoading || isProcessingImg) return;
-
     onSendMessage(message, imageDataUrl ?? undefined);
-
     setMessage('');
     setImageDataUrl(null);
     if (fileInputCameraRef.current) fileInputCameraRef.current.value = '';
     if (fileInputFileRef.current) fileInputFileRef.current.value = '';
     
-    // Devolver foco al input (mejora UX en escritorio)
+    // Reset altura manual
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     textareaRef.current?.focus();
   };
 
@@ -104,14 +111,12 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
     processFile(e.target.files?.[0]);
   };
 
-  // --- NUEVO: Soporte para Pegar (Ctrl+V) ---
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
-
     for (const item of items) {
       if (item.type.indexOf('image') !== -1) {
-        e.preventDefault(); // Evitar pegar el nombre del archivo si es texto
+        e.preventDefault();
         const file = item.getAsFile();
         if (file) processFile(file);
         return;
@@ -119,7 +124,6 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
     }
   };
 
-  // --- NUEVO: Drag & Drop ---
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -144,43 +148,85 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
   const isDisabled = (!message.trim() && !imageDataUrl) || isLoading || isProcessingImg;
 
   return (
-    <div className="bg-neutral-950 p-4 sm:p-6 pb-8">
-      <div className="max-w-3xl mx-auto">
+    <div className="w-full bg-neutral-950 px-4 pb-6 pt-2">
+      <div className="max-w-3xl mx-auto space-y-4">
         
+        {/* Previsualización de Imagen (Estilo Card) */}
+        {imageDataUrl && (
+          <div className="group relative flex items-center gap-4 bg-neutral-900/40 p-3 rounded-xl border border-neutral-800 animate-in fade-in slide-in-from-bottom-3 duration-300">
+            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-neutral-700 shadow-sm">
+               <img src={imageDataUrl} alt="Preview" className="h-full w-full object-cover" />
+            </div>
+            
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-neutral-200 truncate flex items-center gap-2">
+                <FileImage className="size-4 text-emerald-500" /> Imagen adjunta
+              </p>
+              <p className="text-xs text-neutral-500 mt-0.5">Lista para enviar (Comprimida)</p>
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={clearImage}
+              className="text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors h-8 w-8 rounded-full"
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+        )}
+
+        {/* Input Container Principal */}
         <div 
-          className={`relative flex items-end gap-3 bg-neutral-900/50 border rounded-2xl p-3 shadow-lg transition-all duration-200 
-            ${isDragging ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20' : 'border-neutral-800 focus-within:border-neutral-700'}
+          className={`
+            relative flex flex-col sm:flex-row items-end gap-2 p-2 sm:p-3 rounded-3xl transition-all duration-300 ease-out border shadow-sm
+            ${isDragging 
+              ? 'border-emerald-500/50 bg-emerald-950/10 ring-4 ring-emerald-500/10' 
+              : isFocused 
+                ? 'border-neutral-700 bg-neutral-900 ring-2 ring-neutral-800/50 shadow-lg shadow-black/20' 
+                : 'border-neutral-800 bg-neutral-900/60 hover:border-neutral-700'
+            }
           `}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
           
+          {/* Overlay Drag & Drop */}
+          <div className={`absolute inset-0 z-20 rounded-3xl bg-neutral-900/90 backdrop-blur-sm border-2 border-dashed border-emerald-500 flex flex-col items-center justify-center transition-opacity duration-200 pointer-events-none ${isDragging ? 'opacity-100' : 'opacity-0'}`}>
+             <Paperclip className="size-8 text-emerald-500 mb-2 animate-bounce" />
+             <p className="text-emerald-400 font-medium">Suelta la imagen aquí</p>
+          </div>
+
           <Textarea
             ref={textareaRef}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={isDragging ? "Suelta la imagen aquí..." : "Escribe un mensaje..."}
-            className="flex-1 min-h-[48px] max-h-[200px] resize-none bg-transparent border-0 text-neutral-100 placeholder:text-neutral-500 focus-visible:ring-0 text-[15px] px-2 py-3"
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            placeholder="Escribe un mensaje..."
+            className="flex-1 min-h-[44px] max-h-[200px] w-full bg-transparent border-0 text-neutral-100 placeholder:text-neutral-500 focus-visible:ring-0 text-[15px] resize-none py-3 px-3 sm:py-2.5"
             rows={1}
             disabled={isLoading || isProcessingImg}
           />
 
-          <div className="flex flex-col gap-2 items-end">
-            <div className="flex gap-1.5">
-              
+          <div className="flex items-center gap-2 pb-1 pr-1 w-full sm:w-auto justify-between sm:justify-end">
+            
+            {/* Botones de acción (Izquierda en móvil, agrupados en desktop) */}
+            <div className="flex gap-1">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 disabled={isLoading || isProcessingImg}
                 onClick={() => fileInputFileRef.current?.click()}
-                className="h-9 w-9 p-0 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800/80 transition-colors"
-                title="Adjuntar imagen"
+                className="h-9 w-9 rounded-full text-neutral-400 hover:text-emerald-400 hover:bg-emerald-400/10 transition-all active:scale-95"
+                title="Galería"
               >
-                <ImageIcon className="size-4" />
+                <ImageIcon className="size-5" />
               </Button>
 
               <Button
@@ -189,89 +235,49 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
                 size="icon"
                 disabled={isLoading || isProcessingImg}
                 onClick={() => fileInputCameraRef.current?.click()}
-                className="h-9 w-9 p-0 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800/80 transition-colors"
-                title="Tomar foto"
+                className="h-9 w-9 rounded-full text-neutral-400 hover:text-emerald-400 hover:bg-emerald-400/10 transition-all active:scale-95"
+                title="Cámara"
               >
-                <Camera className="size-4" />
-              </Button>
-
-              <Button
-                type="button"
-                onClick={handleSubmit}
-                disabled={isDisabled}
-                className="flex-shrink-0 h-9 w-9 p-0 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 disabled:from-neutral-800 disabled:to-neutral-800 disabled:opacity-40 transition-all duration-200 shadow-lg shadow-emerald-500/20 disabled:shadow-none"
-              >
-                {isLoading || isProcessingImg ? (
-                  <Loader2 className="size-4.5 animate-spin text-neutral-400" />
-                ) : (
-                  <Send className={`size-4.5 ${!isDisabled ? 'text-white' : 'text-neutral-600'}`} />
-                )}
+                <Camera className="size-5" />
               </Button>
             </div>
+
+            {/* Botón de Enviar */}
+            <Button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isDisabled}
+              className={`
+                h-9 px-4 rounded-full font-medium transition-all duration-300 shadow-md
+                ${isDisabled 
+                  ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' 
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20 hover:shadow-emerald-500/20 active:scale-95 w-auto'
+                }
+              `}
+            >
+              {isLoading || isProcessingImg ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="hidden sm:inline text-sm">Enviar</span>
+                  <Send className="size-4" />
+                </div>
+              )}
+            </Button>
           </div>
 
-          <input
-            ref={fileInputCameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={fileInputFileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          
-          {/* Overlay Drag & Drop */}
-          {isDragging && (
-             <div className="absolute inset-0 z-10 bg-neutral-900/90 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-emerald-500/50">
-               <div className="text-emerald-400 font-medium flex items-center gap-2 animate-pulse">
-                 <Paperclip className="size-5" /> Suelta la imagen para adjuntar
-               </div>
-             </div>
-          )}
+          {/* Inputs ocultos */}
+          <input ref={fileInputCameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} />
+          <input ref={fileInputFileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
         </div>
 
-        {/* Previsualización de Imagen */}
-        {imageDataUrl && (
-          <div className="mt-3 animate-in fade-in slide-in-from-bottom-2 duration-200 flex items-center gap-3">
-            <div className="relative inline-block group">
-              <img
-                src={imageDataUrl}
-                alt="Previsualización"
-                className="h-20 w-auto rounded-lg border border-neutral-800 object-cover bg-neutral-900 shadow-md"
-              />
-              <button
-                type="button"
-                className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-neutral-900 border border-neutral-700 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-red-500/20 hover:border-red-500 transition-all shadow-sm z-10"
-                onClick={clearImage}
-                title="Eliminar imagen"
-              >
-                <X className="size-3" />
-              </button>
-              {/* Badge de tamaño optimizado */}
-              <div className="absolute bottom-1 right-1 bg-black/60 text-[9px] text-white px-1.5 py-0.5 rounded backdrop-blur-md">
-                Listo para enviar
-              </div>
-            </div>
-            <div className="text-xs text-neutral-500">
-               <p className="font-medium text-neutral-300">Imagen adjuntada</p>
-               <p>Se enviará junto con tu mensaje.</p>
-            </div>
-          </div>
-        )}
-
-        <div className="text-center text-xs text-neutral-600 mt-3 hidden sm:block">
-          <kbd className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-neutral-500 font-medium font-mono">Enter</kbd> enviar 
-          <span className="mx-2">•</span>
-          <kbd className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-neutral-500 font-medium font-mono">Shift + Enter</kbd> salto de línea
-          <span className="mx-2">•</span>
-          <kbd className="px-2 py-1 bg-neutral-900 border border-neutral-800 rounded-md text-neutral-500 font-medium font-mono">Ctrl + V</kbd> pegar imagen
+        {/* Hints Footer */}
+        <div className="hidden sm:flex justify-center gap-6 text-[11px] text-neutral-600 font-medium select-none opacity-60 hover:opacity-100 transition-opacity">
+          <span className="flex items-center gap-1.5"><kbd className="font-sans bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 text-neutral-400">↵</kbd> enviar</span>
+          <span className="flex items-center gap-1.5"><kbd className="font-sans bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 text-neutral-400">shift + ↵</kbd> nueva línea</span>
+          <span className="flex items-center gap-1.5">Arrastra o pega imágenes</span>
         </div>
+
       </div>
     </div>
   );

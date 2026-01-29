@@ -1,5 +1,16 @@
 @import "tailwindcss";
 @custom-variant dark (&:is(.dark *));
+/* En tu CSS global */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #404040; /* neutral-700 */
+  border-radius: 20px;
+}
 
 :root {
   --font-size: 16px;

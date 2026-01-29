@@ -58,31 +58,12 @@ const API_BASE = (() => {
   return `${protocol}//${hostname}:3000`;
 })();
 
-// Títulos de chats de ejemplo antiguos que ya no deben mostrarse
-const LEGACY_CHAT_TITLES = [
-  'Service Availability Check',
-  'Client Device Status',
-  'Network Monitoring Query',
-];
-
 function ChatApp() {
   const { user, isAdmin } = useAuth();
-  const [chats, setChats] = useState<Chat[]>(() => {
-    if (user) {
-      const storedChats = localStorage.getItem(`chats_${user.id}`);
-      if (storedChats) {
-        try {
-          const parsedChats: Chat[] = JSON.parse(storedChats);
-          return parsedChats.filter((chat) => !LEGACY_CHAT_TITLES.includes(chat.title));
-        } catch (error) {
-          console.error('Error parsing stored chats:', error);
-          return [];
-        }
-      }
-      return [];
-    }
-    return [];
-  });
+  
+  // 1. CAMBIO: Inicializamos chats vacío. Ya no leemos del localStorage.
+  const [chats, setChats] = useState<Chat[]>([]);
+  
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 768);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -113,6 +94,35 @@ function ChatApp() {
     metadata?: Record<string, any> | null;
   };
 
+  // 2. CAMBIO: useEffect para cargar los chats desde el Backend al iniciar
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchChats = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/chat/history`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          // Cargamos los chats que vienen formateados del backend
+          setChats(data.chats || []);
+        } else {
+          console.error('Error cargando historial de chats:', res.statusText);
+        }
+      } catch (error) {
+        console.error('Error de red al obtener chats:', error);
+      }
+    };
+
+    fetchChats();
+  }, [user]);
+
+  // NOTA: Se eliminó el useEffect que guardaba en localStorage `useEffect(() => { localStorage.setItem... }, [chats])`
+
   const openUserHistoryAsChat = useCallback(async (
     userInfo: { id: number; email: string; name?: string },
     options?: { focus?: boolean; closePanel?: boolean }
@@ -134,17 +144,14 @@ function ChatApp() {
       const history: AdminHistoryMessage[] = data.messages ?? [];
 
       if (history.length === 0) {
-        // Sin mensajes, no creamos chat en el sidebar
         return;
       }
 
-      // Ordenar por fecha por seguridad
       const sortedHistory = [...history].sort(
         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
 
-      // Separar historial en "chats" por usuario usando umbral de inactividad
-      const THRESHOLD_MS = 30 * 60 * 1000; // 30 minutos
+      const THRESHOLD_MS = 60 * 60 * 1000; // 60 minutos (Igual que en el backend)
       const groups: AdminHistoryMessage[][] = [];
       let currentGroup: AdminHistoryMessage[] = [];
 
@@ -169,7 +176,8 @@ function ChatApp() {
         groups.push(currentGroup);
       }
 
-      const newChats: Chat[] = groups.map((group, idx) => {
+      // Revertimos para que los más nuevos salgan arriba en la lista
+      const newChats: Chat[] = groups.reverse().map((group, idx) => {
         const historyMessages: Message[] = group.map((m) => ({
           id: `admin-${userInfo.id}-${m.id}`,
           role: m.role,
@@ -181,13 +189,14 @@ function ChatApp() {
         }));
 
         const latest = group[group.length - 1];
+        // Idx invertido visualmente si quieres, o secuencial
         const chatId = `admin-history-${userInfo.id}-${idx + 1}`;
 
         return {
           id: chatId,
-          title: `Historial · ${userInfo.name ?? userInfo.email} · ${idx + 1}`,
+          title: `Historial · ${userInfo.name ?? userInfo.email}`,
           timestamp: latest ? new Date(latest.createdAt).toLocaleString() : 'Sin mensajes',
-          preview: latest ? latest.content.slice(0, 80) : 'Sin mensajes registrados para este usuario',
+          preview: latest ? latest.content.slice(0, 80) : 'Sin mensajes',
           messages: historyMessages,
           isAdminHistory: true,
           ownerUserId: userInfo.id,
@@ -195,7 +204,6 @@ function ChatApp() {
       });
 
       setChats((prev) => {
-        // Quitar historiales anteriores de este usuario y añadir los nuevos
         const withoutExisting = prev.filter(
           (c) => !c.isAdminHistory || c.ownerUserId !== userInfo.id
         );
@@ -217,7 +225,7 @@ function ChatApp() {
     }
   }, [isAdmin]);
 
-  // Cuando el usuario es admin, precargar historiales de todos los usuarios como chats de solo lectura
+  // Precarga de historiales Admin
   useEffect(() => {
     if (!isAdmin) return;
 
@@ -227,10 +235,7 @@ function ChatApp() {
           credentials: 'include',
         });
         const data = await res.json();
-        if (!res.ok) {
-          console.error('No se pudieron cargar los usuarios para historiales de admin', data.error);
-          return;
-        }
+        if (!res.ok) return;
 
         const users = (data.users ?? []) as { id: number; email: string; name?: string }[];
 
@@ -246,30 +251,6 @@ function ChatApp() {
 
     void preloadAllHistories();
   }, [isAdmin, openUserHistoryAsChat]);
-
-  // Save chats to localStorage whenever they change, limiting size to avoid QuotaExceededError
-  useEffect(() => {
-    if (user && chats.length > 0) {
-      // Limit to 20 most recent chats
-      const limitedChats = chats.slice(0, 20).map(chat => ({
-        ...chat,
-        // Limit to 100 most recent messages per chat
-        messages: chat.messages.slice(-100),
-      }));
-      try {
-        localStorage.setItem(`chats_${user.id}`, JSON.stringify(limitedChats));
-      } catch (e) {
-        // If still over quota, try with fewer chats
-        for (let n = 15; n >= 1; n -= 2) {
-          try {
-            const lessChats = limitedChats.slice(0, n);
-            localStorage.setItem(`chats_${user.id}`, JSON.stringify(lessChats));
-            break;
-          } catch {}
-        }
-      }
-    }
-  }, [chats, user]);
 
   const currentChat = chats.find((chat) => chat.id === activeChat);
 
@@ -314,7 +295,7 @@ function ChatApp() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Poll backend integrations status and show alerts on transitions
+  // Poll backend integrations status
   useEffect(() => {
     let cancelled = false;
     const fetchStatus = async () => {
@@ -341,17 +322,15 @@ function ChatApp() {
           }
         }
       } catch (e) {
-        // network failure: only alert on transition to fully down
         const prev = prevStatusRef.current;
         if (prev && (prev.wisphub.ok || prev.smartolt.ok)) {
-          toast.error('Integraciones no disponibles', { description: 'No se pudo consultar el estado de integraciones' });
+          toast.error('Integraciones no disponibles');
         }
         prevStatusRef.current = null;
         setIntegrationStatus(null);
       }
     };
     fetchStatus();
-    // Poll every 10 minutes (600000 ms) to reduce frequency
     const id = setInterval(fetchStatus, 600000);
     return () => {
       cancelled = true;
@@ -389,21 +368,21 @@ function ChatApp() {
       }
 
       const userMsg: Message = {
-        id: `m${data.userMessage.id}`,
+        id: `m${data.userMessage.id || Date.now()}`,
         role: 'user',
         content: data.userMessage.content,
         imageDataUrl: data.userMessage.imageUrl ?? undefined,
-        createdAt: data.userMessage.createdAt,
+        createdAt: data.userMessage.createdAt || new Date().toISOString(),
       };
 
       const assistantMsg: Message = {
-        id: `m${data.assistantMessage.id}`,
+        id: `m${data.assistantMessage.id || Date.now() + 1}`,
         role: 'assistant',
         content: data.assistantMessage.content,
         actions: data.assistantMessage.actions ?? [],
         metadata: data.assistantMessage.metadata ?? null,
         timestamp: Date.now(),
-        createdAt: data.assistantMessage.createdAt,
+        createdAt: data.assistantMessage.createdAt || new Date().toISOString(),
       };
 
       setAnimatingMessageId(assistantMsg.id);
@@ -416,24 +395,28 @@ function ChatApp() {
                   ...chat,
                   messages: [...chat.messages, userMsg, assistantMsg],
                   preview: (content || '[Imagen enviada]').substring(0, 50),
-                  timestamp: 'Just now',
+                  timestamp: new Date().toLocaleTimeString(),
                 }
               : chat
           )
         );
       } else {
+        // Creamos un chat temporal localmente
+        // Al recargar la página, se traerá bien agrupado del backend
         const newChat: Chat = {
-          id: `chat${Date.now()}`,
-          title: (content || 'Chat con imagen').substring(0, 50),
-          timestamp: 'Justo ahora',
+          id: `chat-temp-${Date.now()}`,
+          title: (content || 'Nueva conversación').substring(0, 50),
+          timestamp: 'Ahora',
           preview: (content || '[Imagen enviada]').substring(0, 50),
           messages: [userMsg, assistantMsg],
         };
+        // Lo ponemos al principio
         setChats((prev) => [newChat, ...prev]);
         setActiveChat(newChat.id);
       }
     } catch (err) {
       console.error('Fallo al contactar backend', err);
+      toast.error('Error de conexión');
     }
   };
 
@@ -549,7 +532,6 @@ function ChatApp() {
       }
 
       if (data?.ok) {
-        // append a user message summarizing the action and the assistant result
         const userMsg: Message = {
           id: `m${Date.now()}-auth-user`,
           role: 'user',
@@ -560,9 +542,7 @@ function ChatApp() {
         const assistantMsg: Message = {
           id: `m${Date.now()}-auth-assistant`,
           role: 'assistant',
-          content:
-            data.message ||
-            'ONU autorizada correctamente. Ya estamos en el momento de configurar el WAN por IP estática. Completa los datos a continuación.',
+          content: data.message || 'ONU autorizada correctamente.',
           actions: Array.isArray(data.actions) ? data.actions : undefined,
           createdAt: new Date().toISOString(),
         };
@@ -580,14 +560,13 @@ function ChatApp() {
           )
         );
 
-        // show brief success toast
-        toast.success('Autorización enviada, ahora configura el WAN');
+        toast.success('Autorización enviada');
       } else {
         toast.error('Autorización fallida: ' + (data?.error || 'error desconocido'));
       }
     } catch (err) {
       console.error('submitAuth error', err);
-      toast.error('Fallo al autorizar (request)');
+      toast.error('Fallo al autorizar');
     }
   };
 
@@ -618,7 +597,7 @@ function ChatApp() {
       const assistantMsg: Message = {
         id: `m${Date.now()}-wan-assistant`,
         role: 'assistant',
-        content: data.message || 'WAN configurado correctamente en SmartOLT.',
+        content: data.message || 'WAN configurado correctamente.',
         createdAt: new Date().toISOString(),
       };
 
@@ -638,7 +617,7 @@ function ChatApp() {
       toast.success('WAN estático configurado');
     } catch (err) {
       console.error('applyPendingWan error', err);
-      toast.error('Fallo al configurar WAN (request)');
+      toast.error('Fallo al configurar WAN');
     }
   };
 
@@ -651,9 +630,7 @@ function ChatApp() {
     }
     setAnimatingMessageId(null);
     
-    // Auto-hide sidebar on mobile when a chat is selected
-    const isMobile = window.innerWidth < 768;
-    if (isMobile) {
+    if (window.innerWidth < 768) {
       setSidebarCollapsed(true);
     }
   };
@@ -669,7 +646,6 @@ function ChatApp() {
 
   return (
     <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
-      {/* Search Modal */}
       <SearchModal
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
@@ -677,7 +653,6 @@ function ChatApp() {
         onSelectChat={handleSelectChat}
       />
 
-      {/* Sidebar */}
       <ChatSidebar
         chats={chats}
         activeChat={activeChat}
@@ -693,7 +668,6 @@ function ChatApp() {
         }}
       />
 
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {showAdminPanel && (
           <AdminUserPanel 

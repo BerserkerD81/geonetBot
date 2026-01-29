@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { 
   Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
-  Copy, RotateCcw, MapPin, Maximize2, Download, Eye, X, ImageOff, Loader2
+  Copy, RotateCcw, MapPin, Maximize2, Download, Eye, EyeOff, X, ImageOff, Loader2,
+  Server, HardDrive, Network
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -93,25 +94,20 @@ interface ChatMessageProps {
 
 // --- UTILIDADES ---
 
-// 1. Resolver API URL base
 const API_BASE = (() => {
   const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
   if (envApi && envApi.trim()) {
     return envApi.startsWith('http') ? envApi : `http://${envApi}`;
   }
   const { protocol, hostname } = window.location;
-  // Ajusta este puerto si tu backend corre en otro (ej: 3000, 4000)
   return `${protocol}//${hostname}:3000`; 
 })();
 
-// 2. Normalizar URL de imagen (SOLUCIÓN AL PROBLEMA DE IMÁGENES ROTAS)
 const resolveImageUrl = (url?: string) => {
   if (!url) return null;
-  // Si ya es absoluta (http...) o base64 (data:...), la dejamos igual
   if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) {
     return url;
   }
-  // Si es relativa (ej: /uploads/img.png), le pegamos el dominio del backend
   const cleanBase = API_BASE.replace(/\/+$/, '');
   const cleanPath = url.replace(/^\/+/, '');
   return `${cleanBase}/${cleanPath}`;
@@ -167,7 +163,8 @@ const parseMarkdownTableToInstallations = (content: string, actions?: ActionOpti
   }
 };
 
-// --- COMPONENTE SELECT ---
+// --- COMPONENTES AUXILIARES ---
+
 function SearchableSelect({
   action,
   value,
@@ -187,9 +184,9 @@ function SearchableSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full justify-between h-9 bg-neutral-900 border-neutral-800 text-neutral-50 text-sm hover:bg-neutral-800"
+          className="w-full justify-between h-10 bg-neutral-900 border-neutral-800 text-neutral-50 text-sm hover:bg-neutral-800 truncate"
         >
-          <span className="truncate text-left">{display}</span>
+          <span className="truncate text-left flex-1">{display}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-60" />
         </Button>
       </PopoverTrigger>
@@ -210,7 +207,7 @@ function SearchableSelect({
                     onChange(val);
                     setOpen(false);
                   }}
-                  className="text-sm"
+                  className="text-sm py-2"
                 >
                   <CheckIcon className={`mr-2 h-4 w-4 ${value === opt ? 'opacity-100' : 'opacity-0'}`} />
                   <span className="truncate">{opt}</span>
@@ -224,7 +221,6 @@ function SearchableSelect({
   );
 }
 
-// --- NUEVO COMPONENTE: PREVISUALIZACIÓN DE IMAGEN ---
 function ImagePreview({ 
   src, 
   alt, 
@@ -245,14 +241,12 @@ function ImagePreview({
 
   return (
     <div className={`relative overflow-hidden bg-neutral-950 ${className}`}>
-      {/* Estado Loading */}
       {status === 'loading' && (
         <div className="absolute inset-0 flex items-center justify-center bg-neutral-900/50 z-10">
           <Loader2 className="h-6 w-6 text-emerald-500 animate-spin" />
         </div>
       )}
       
-      {/* Estado Error */}
       {status === 'error' && (
         <div className="flex flex-col items-center justify-center w-full h-full min-h-[150px] bg-neutral-900 text-neutral-500 gap-2 p-4 border border-neutral-800 rounded-lg">
           <ImageOff className="h-8 w-8 opacity-50" />
@@ -260,17 +254,15 @@ function ImagePreview({
         </div>
       )}
 
-      {/* Imagen Real */}
       <img 
         src={finalSrc} 
         alt={alt}
-        className={`w-full h-full transition-opacity duration-300 ${status === 'success' ? 'opacity-100' : 'opacity-0'}`}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${status === 'success' ? 'opacity-100' : 'opacity-0'}`}
         onLoad={() => setStatus('success')}
         onError={() => setStatus('error')}
         onClick={status === 'success' ? onClick : undefined}
       />
 
-      {/* Overlay de acciones (solo si cargó bien) */}
       {status === 'success' && (
         <>
            <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-3 cursor-pointer" onClick={onClick}>
@@ -287,10 +279,6 @@ function ImagePreview({
                  <Download className="size-4 text-white" />
                </Button>
              )}
-           </div>
-           {/* Etiqueta inferior */}
-           <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] text-neutral-300 pointer-events-none">
-             <Eye className="size-3" /> Click para ampliar
            </div>
         </>
       )}
@@ -323,7 +311,7 @@ export function ChatMessage({
   const authUser = user as { username?: string | null; displayName?: string | null; email?: string | null } | null;
   const isUser = role === 'user';
 
-  // Estados locales
+  // Estados
   const [copied, setCopied] = useState(false);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, string[]>>({});
@@ -336,14 +324,15 @@ export function ChatMessage({
     ponType?: string;
     onuId?: string;
   } | null>(null);
-
   const [wifiError, setWifiError] = useState<string | null>(null);
-
-  // Animación
-  const [displayedContent, setDisplayedContent] = useState(shouldAnimate && !isUser ? '' : content);
+  const [showWifiPass, setShowWifiPass] = useState(false); // <--- Estado para mostrar contraseña
+  
+  // Estado para la animación
+  const [displayedContent, setDisplayedContent] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
-  // Memoización
+  // --- LÓGICA DE PROCESAMIENTO DE DATOS ---
+
   const smartoltAvailability = (metadata?.smartoltAvailability as SmartoltAvailability | undefined) || null;
   const hasSmartoltTable = Boolean(smartoltAvailability?.olts?.length);
   
@@ -357,49 +346,56 @@ export function ChatMessage({
   
   const hasInstallationsTable = Boolean(installations.length);
 
-  const cleanContent = useMemo(() => {
-    if (isUser || installations.length === 0) return displayedContent;
-    const tableRegex = /^\|.*\|[\s\S]*?(\n(?![ \t]*\|)|$)/gm;
-    const cleaned = displayedContent.replace(tableRegex, '').trim();
-    return cleaned || (installations.length > 0 ? "He encontrado las siguientes instalaciones:" : "");
-  }, [displayedContent, isUser, installations]);
+  // --- LÓGICA DE ANIMACIÓN CORREGIDA ---
+  
+  const finalCleanText = useMemo(() => {
+    if (isUser) return content;
+    
+    // Si hay datos estructurados, limpiamos el Markdown para no animarlo
+    if (hasInstallationsTable || hasSmartoltTable) {
+        const tableRegex = /^\|.*\|[\s\S]*?(\n(?![ \t]*\|)|$)/gm;
+        const cleaned = content.replace(tableRegex, '').trim();
+        return cleaned || (hasInstallationsTable ? "He encontrado las siguientes instalaciones:" : "");
+    }
+    
+    return content;
+  }, [content, isUser, hasInstallationsTable, hasSmartoltTable]);
 
-  // Efecto de mecanografía
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
-    let startTimeout: ReturnType<typeof setTimeout> | null = null;
-    let settleTimeout: ReturnType<typeof setTimeout> | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
 
     if (shouldAnimate && !isUser) {
-      startTimeout = setTimeout(() => {
-        setDisplayedContent('');
-        setIsTyping(true);
-        let index = 0;
+      setDisplayedContent('');
+      setIsTyping(true);
+      let index = 0;
+      
+      timeout = setTimeout(() => {
         interval = setInterval(() => {
-          if (index < content.length) {
-            setDisplayedContent(content.slice(0, index + 1));
-            index += 1;
+          if (index < finalCleanText.length) {
+            setDisplayedContent(finalCleanText.slice(0, index + 1));
+            index++;
           } else {
             setIsTyping(false);
             if (interval) clearInterval(interval);
           }
         }, 10);
-      }, 0);
+      }, 50);
+
     } else {
-      settleTimeout = setTimeout(() => {
-        setDisplayedContent(content);
-        setIsTyping(false);
-      }, 0);
+      setDisplayedContent(finalCleanText);
+      setIsTyping(false);
     }
 
     return () => {
       if (interval) clearInterval(interval);
-      if (startTimeout) clearTimeout(startTimeout);
-      if (settleTimeout) clearTimeout(settleTimeout);
+      if (timeout) clearTimeout(timeout);
     };
-  }, [content, shouldAnimate, isUser]);
+  }, [finalCleanText, shouldAnimate, isUser]);
 
-  // Fetching dinámico
+
+  // --- HANDLERS Y FETCHING ---
+  
   const fetchOdbOptionsForZone = async (zone: string) => {
     const trimmed = zone.trim();
     if (!trimmed) return;
@@ -433,7 +429,6 @@ export function ChatMessage({
     } catch (err) { console.error(err); }
   };
 
-  // Helpers
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(content);
@@ -461,7 +456,6 @@ export function ChatMessage({
     if (onu.actionPayload) onActionSelect?.(onu.actionPayload);
   };
 
-  // Filtrado de acciones
   const safeActions = useMemo(() => (Array.isArray(actions) ? actions.filter((a) => a?.type) : []), [actions]);
   
   const inputActions = useMemo(() => {
@@ -511,7 +505,6 @@ export function ChatMessage({
     if (isWifiFlow) {
       const pass = inputValues['wifi_pass'] || '';
       const passRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
-      
       if (!passRegex.test(pass)) {
         setWifiError("La contraseña debe tener mín. 8 caracteres, 1 mayúscula y 1 número.");
         return; 
@@ -554,8 +547,8 @@ export function ChatMessage({
   const currentIdx = currentVersion ?? 0;
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/40' : ''} px-2`}>
-      <div className="w-full max-w-4xl flex gap-3 items-start py-4">
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/40' : ''} px-2 py-2`}>
+      <div className="w-full max-w-4xl flex gap-3 items-start">
         {!isUser && (
           <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400">
             <span className="text-xs font-bold">AI</span>
@@ -566,17 +559,16 @@ export function ChatMessage({
           {isUser ? (
             <div className="flex flex-col items-end">
               <div className="text-xs text-neutral-500 mb-1.5 mr-1 font-medium">{authUser?.username || 'Tú'}</div>
-              <div className="inline-block max-w-[90%] bg-neutral-800 text-neutral-50 px-4 py-2.5 rounded-2xl border border-neutral-700/60 text-[15px] whitespace-pre-wrap">
+              <div className="inline-block max-w-[95%] sm:max-w-[85%] bg-neutral-800 text-neutral-50 px-4 py-2.5 rounded-2xl border border-neutral-700/60 text-[15px] whitespace-pre-wrap shadow-sm">
                 {displayedContent}
                 
-                {/* --- IMAGEN DEL USUARIO (Corregida) --- */}
                 {imageDataUrl && (
-                  <div className="mt-3 relative group/img overflow-hidden rounded-xl border border-neutral-700 max-w-xs">
+                  <div className="mt-3 relative group/img overflow-hidden rounded-xl border border-neutral-700 max-w-full sm:max-w-xs">
                     <ImagePreview 
                       src={imageDataUrl}
                       alt="Enviada"
                       onClick={() => setIsZoomed(true)}
-                      className="max-h-64 object-cover cursor-pointer"
+                      className="max-h-64 w-full object-cover cursor-pointer"
                     />
                   </div>
                 )}
@@ -586,26 +578,25 @@ export function ChatMessage({
           ) : (
             <div className="flex flex-col gap-3">
               <div className="text-neutral-50 text-sm sm:text-[15px] leading-[1.8] whitespace-pre-wrap break-words">
-                {cleanContent}
-                {isTyping && <span className="inline-block w-1.5 h-5 bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
+                {displayedContent}
+                {isTyping && <span className="inline-block w-1.5 h-4 align-middle bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
                 
-                {/* --- IMAGEN DEL BOT (Corregida) --- */}
                 {imageDataUrl && (
-                  <div className="mt-4 relative group/img max-w-sm sm:max-w-md">
-                    <div className="rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl transition-all hover:border-emerald-500/50 overflow-hidden">
+                  <div className="mt-4 relative group/img w-full max-w-sm sm:max-w-md">
+                    <div className="rounded-2xl border border-neutral-800 bg-neutral-900 shadow-xl transition-all hover:border-emerald-500/50 overflow-hidden">
                        <ImagePreview 
                          src={imageDataUrl}
                          alt="Evidencia técnica"
                          onClick={() => setIsZoomed(true)}
                          onDownload={() => downloadImage(imageDataUrl)}
-                         className="h-auto max-h-[400px] object-cover"
+                         className="h-auto max-h-[350px] object-cover"
                        />
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* TABLAS Y ACCIONES */}
+              {/* --- TABLA INSTALACIONES (RESPONSIVE) --- */}
               {hasInstallationsTable && (
                 <div className="mt-4 space-y-3">
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
@@ -613,22 +604,43 @@ export function ChatMessage({
                     Instalaciones Pendientes
                   </div>
                   <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden">
-                    <div className="grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
+                    <div className="hidden md:grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
                       <div className="col-span-1">ID</div>
                       <div className="col-span-4">Cliente</div>
                       <div className="col-span-5">Dirección</div>
                       <div className="col-span-2 text-right">Acción</div>
                     </div>
+                    
                     <div className="divide-y divide-neutral-800/60">
                       {installations.map((inst) => (
-                        <div key={inst.id} className="grid grid-cols-12 items-center px-4 py-3 gap-2 text-sm text-neutral-100 hover:bg-neutral-800/40 transition-colors group">
-                          <div className="col-span-1 font-mono text-xs text-neutral-500">{inst.id}</div>
-                          <div className="col-span-4 font-medium truncate" title={inst.clientName}>{inst.clientName}</div>
-                          <div className="col-span-5 text-xs text-neutral-400 truncate flex items-center gap-1.5">
-                            <MapPin className="size-3 shrink-0" /> {inst.address}
+                        <div key={inst.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center px-4 py-4 md:py-3 gap-3 md:gap-2 text-sm text-neutral-100 hover:bg-neutral-800/40 transition-colors">
+                          
+                          <div className="flex justify-between items-center md:hidden pb-2 border-b border-neutral-800/50">
+                             <span className="text-xs font-mono text-neutral-500">#{inst.id}</span>
+                             <span className="text-[10px] text-neutral-500 uppercase font-medium">Instalación</span>
                           </div>
-                          <div className="col-span-2 text-right">
-                            <Button size="sm" onClick={() => inst.actionPayload && onActionSelect?.(inst.actionPayload)} className="h-7 text-[11px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20">
+
+                          <div className="md:col-span-1 font-mono text-xs text-neutral-500 hidden md:block">{inst.id}</div>
+                          
+                          <div className="md:col-span-4 font-medium flex flex-col">
+                            <span className="md:hidden text-[10px] text-neutral-500 uppercase mb-0.5">Cliente</span>
+                            <span title={inst.clientName} className="break-words">{inst.clientName}</span>
+                          </div>
+                          
+                          <div className="md:col-span-5 text-xs text-neutral-400 flex flex-col md:flex-row md:items-center gap-1.5">
+                            <span className="md:hidden text-[10px] text-neutral-500 uppercase mt-2 mb-0.5">Dirección</span>
+                            <div className="flex items-start gap-1.5">
+                              <MapPin className="size-3.5 shrink-0 mt-0.5 md:mt-0" /> 
+                              <span className="break-words">{inst.address}</span>
+                            </div>
+                          </div>
+                          
+                          <div className="md:col-span-2 md:text-right mt-2 md:mt-0">
+                            <Button 
+                              size="sm" 
+                              onClick={() => inst.actionPayload && onActionSelect?.(inst.actionPayload)} 
+                              className="w-full md:w-auto h-9 md:h-7 text-xs font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-lg"
+                            >
                               Autorizar
                             </Button>
                           </div>
@@ -639,56 +651,78 @@ export function ChatMessage({
                 </div>
               )}
 
+              {/* --- TABLA SMARTOLT (RESPONSIVE) --- */}
               {hasSmartoltTable && (
-                <div className="mt-4 space-y-3">
+                <div className="mt-4 space-y-4">
                    <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" /> Disponibilidad SmartOLT
                   </div>
                   {smartoltAvailability?.olts?.map((olt) => (
                     <div key={olt.oltId} className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 shadow-sm">
-                      <div className="flex justify-between items-center mb-4">
-                        <div className="text-sm font-bold text-emerald-500 uppercase tracking-wider">
-                          {olt.oltName || 'OLT'}
+                      <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+                        <div className="flex items-center gap-2">
+                           <Server className="size-4 text-emerald-600"/>
+                           <div className="text-sm font-bold text-emerald-500 uppercase tracking-wider">
+                             {olt.oltName || 'OLT'}
+                           </div>
                         </div>
-                        <span className="text-[10px] bg-neutral-800 text-neutral-400 px-2 py-1 rounded">
-                          {olt.onus.length} ONUs detectadas
+                        <span className="text-[10px] bg-neutral-800 text-neutral-400 px-2.5 py-1 rounded-full border border-neutral-700/50">
+                          {olt.onus.length} ONUs
                         </span>
                       </div>
+                      
                       <div className="overflow-hidden rounded-lg border border-neutral-800/70 bg-black/20">
                         <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 bg-neutral-800/50 text-[11px] font-bold text-neutral-500 uppercase">
-                          <div className="col-span-2">Label / SN</div>
+                          <div className="col-span-2">SN / Label</div>
                           <div className="col-span-1">Tipo</div>
-                          <div className="col-span-2 text-center">Puerto (B/P/PON)</div>
+                          <div className="col-span-2 text-center">Board/Port/Pon</div>
                           <div className="col-span-4">Descripción</div>
                           <div className="col-span-2 text-center">Modelo</div>
                           <div className="col-span-1 text-right">Acción</div>
                         </div>
+                        
                         <div className="divide-y divide-neutral-800">
                           {olt.onus.map((onu) => (
-                            <div key={onu.id} className="grid grid-cols-12 items-center gap-2 px-4 py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
-                              <div className="col-span-12 md:col-span-2 flex flex-col">
-                                <span className="font-medium text-neutral-200 truncate">{onu.label}</span>
-                                <span className="text-[10px] font-mono text-neutral-500 uppercase">{onu.sn || 'Sin SN'}</span>
+                            <div key={onu.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-2 px-4 py-4 md:py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
+                              
+                              <div className="col-span-12 md:col-span-2 flex flex-row md:flex-col justify-between items-start md:justify-center">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-neutral-200 truncate">{onu.label}</span>
+                                    <span className="text-[11px] font-mono text-neutral-500 uppercase bg-neutral-900/50 px-1 rounded w-fit mt-0.5">{onu.sn || 'Sin SN'}</span>
+                                </div>
+                                <span className="md:hidden px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
+                                  {onu.ponType || 'GPON'}
+                                </span>
                               </div>
-                              <div className="col-span-4 md:col-span-1">
+
+                              <div className="hidden md:block col-span-4 md:col-span-1">
                                 <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
                                   {onu.ponType || 'GPON'}
                                 </span>
                               </div>
-                              <div className="col-span-4 md:col-span-2 text-center font-mono text-neutral-300">
-                                {onu.board}/{onu.port}/{onu.ponPort}
+                              
+                              <div className="col-span-4 md:col-span-2 flex items-center md:justify-center gap-2 text-neutral-300">
+                                <Network className="size-3.5 md:hidden text-neutral-500" />
+                                <span className="md:hidden text-neutral-500 text-xs">Puerto:</span>
+                                <span className="font-mono bg-neutral-800/40 px-1.5 py-0.5 rounded">{onu.board}/{onu.port}/{onu.ponPort}</span>
                               </div>
-                              <div className="col-span-12 md:col-span-4 text-xs text-neutral-400 italic truncate">
+
+                              <div className="col-span-12 md:col-span-4 text-xs text-neutral-400 italic truncate flex items-center gap-2">
+                                <span className="md:hidden not-italic font-semibold text-neutral-500">Desc:</span>
                                 {onu.description || 'Sin descripción'}
                               </div>
-                              <div className="col-span-4 md:col-span-2 text-center text-neutral-400">
+                              
+                              <div className="col-span-4 md:col-span-2 md:text-center text-neutral-400 flex items-center md:justify-center gap-2">
+                                <HardDrive className="size-3.5 md:hidden text-neutral-500" />
+                                <span className="md:hidden text-neutral-500 text-xs">Modelo:</span>
                                 {onu.type || onu.model || 'N/A'}
                               </div>
-                              <div className="col-span-12 md:col-span-1 text-right">
+                              
+                              <div className="col-span-12 md:col-span-1 text-right mt-1 md:mt-0">
                                 <Button 
                                   size="sm" 
                                   onClick={() => handleOnuSelect(onu, olt)} 
-                                  className="w-full md:w-auto h-8 px-4 text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20"
+                                  className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20 rounded-lg active:scale-95 transition-transform"
                                 >
                                   Usar
                                 </Button>
@@ -702,11 +736,12 @@ export function ChatMessage({
                 </div>
               )}
 
-              <div className="mt-1 space-y-4">
+              {/* --- BOTONES Y ACCIONES --- */}
+              <div className="mt-2 space-y-4">
                 {selectionButtonsToRender.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {selectionButtonsToRender.map(a => (
-                      <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-9 bg-neutral-100 text-neutral-900 hover:bg-white truncate">
+                      <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
                         {a.label}
                       </Button>
                     ))}
@@ -721,14 +756,14 @@ export function ChatMessage({
                         return (
                           <a 
                             key={a.id} href={href} target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center justify-center rounded-md text-sm font-medium h-8 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 px-3 no-underline"
+                            className="inline-flex items-center justify-center rounded-lg text-sm font-medium h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 px-4 hover:text-white transition-colors no-underline border border-neutral-700"
                           >
                             {a.label}
                           </a>
                         );
                       }
                       return (
-                        <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-8 bg-neutral-800 text-neutral-300 hover:bg-neutral-700">
+                        <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white border border-neutral-700">
                           {a.label}
                         </Button>
                       );
@@ -737,10 +772,10 @@ export function ChatMessage({
                 )}
 
                 {inputActions.length > 0 && (
-                  <div className="space-y-3 bg-neutral-900/40 p-4 rounded-xl border border-neutral-800">
+                  <div className="space-y-4 bg-neutral-900/40 p-5 rounded-2xl border border-neutral-800/60 shadow-inner">
                     {inputActions.map(action => (
-                      <div key={action.id} className="space-y-1.5">
-                        <div className="text-xs text-neutral-400 font-medium">{action.label}</div>
+                      <div key={action.id} className="space-y-2">
+                        <div className="text-xs text-neutral-400 font-medium ml-1">{action.label}</div>
                         {action.options?.length ? (
                           <SearchableSelect action={action} value={inputValues[action.id] || ''} onChange={(val) => {
                             setInputValues(p => ({ ...p, [action.id]: val }));
@@ -748,27 +783,44 @@ export function ChatMessage({
                             if (action.id === 'auth-odb') fetchPortsForOdb(val);
                           }} />
                         ) : (
-                          <>
+                          <div className="relative">
                             <Input 
                               value={inputValues[action.id] || ''} 
-                              type={action.id === 'wifi_pass' ? 'password' : 'text'}
+                              type={action.id === 'wifi_pass' && !showWifiPass ? 'password' : 'text'}
                               onChange={(e) => {
                                 setInputValues(p => ({ ...p, [action.id]: e.target.value }));
                                 if (action.id === 'wifi_pass') setWifiError(null);
                               }} 
                               placeholder={action.placeholder} 
-                              className={`h-9 bg-neutral-950 border-neutral-800 ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500' : ''}`} 
+                              className={`h-10 bg-neutral-950 border-neutral-800 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${action.id === 'wifi_pass' ? 'pr-10' : ''} ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500' : ''}`} 
                             />
-                            {action.id === 'wifi_pass' && wifiError && (
-                              <span className="text-[10px] text-red-500 mt-1 block">{wifiError}</span>
+                            
+                            {action.id === 'wifi_pass' && (
+                              <button
+                                type="button"
+                                onClick={() => setShowWifiPass(!showWifiPass)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors focus:outline-none"
+                                tabIndex={-1}
+                              >
+                                {showWifiPass ? (
+                                  <EyeOff className="size-4" />
+                                ) : (
+                                  <Eye className="size-4" />
+                                )}
+                              </button>
                             )}
-                          </>
+
+                            {action.helperText && !wifiError && <div className="text-[10px] text-neutral-600 mt-1 ml-1">{action.helperText}</div>}
+                          </div>
+                        )}
+                        {action.id === 'wifi_pass' && wifiError && (
+                          <span className="text-[10px] text-red-500 mt-1 block animate-in slide-in-from-top-1 ml-1">{wifiError}</span>
                         )}
                       </div>
                     ))}
                     {submitAction && (
                       <Button 
-                        className={`w-full h-10 bg-emerald-500 hover:bg-emerald-400 text-white ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        className={`w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold mt-2 shadow-lg shadow-emerald-900/20 transition-all ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
                         onClick={handleBulkSubmit}
                         disabled={submitAction.id === 'wifi_submit' && !!wifiError}
                       >
@@ -780,41 +832,40 @@ export function ChatMessage({
               </div>
 
               {/* FOOTER */}
-              <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <div className="flex items-center gap-3 mt-4 flex-wrap">
                 {hasVersions && (
-                  <div className="flex items-center gap-1 bg-neutral-800/50 rounded-lg px-1 py-1">
-                    <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'prev')} disabled={currentIdx === 0} className="h-6 w-6 p-0"><ChevronLeft className="size-3.5" /></Button>
-                    <span className="text-[10px] text-neutral-400">{currentIdx + 1}/{versions.length}</span>
-                    <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'next')} disabled={currentIdx === versions.length - 1} className="h-6 w-6 p-0"><ChevronRight className="size-3.5" /></Button>
+                  <div className="flex items-center gap-1 bg-neutral-800/50 rounded-lg px-1.5 py-1 border border-neutral-800">
+                    <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'prev')} disabled={currentIdx === 0} className="h-6 w-6 p-0 hover:bg-neutral-700/50"><ChevronLeft className="size-3.5" /></Button>
+                    <span className="text-[10px] text-neutral-400 font-mono w-6 text-center">{currentIdx + 1}/{versions.length}</span>
+                    <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'next')} disabled={currentIdx === versions.length - 1} className="h-6 w-6 p-0 hover:bg-neutral-700/50"><ChevronRight className="size-3.5" /></Button>
                   </div>
                 )}
                 
-                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button variant="ghost" size="sm" onClick={handleCopy} className="h-7 text-neutral-400 hover:text-white">
-                    {copied ? <Check className="size-3.5 mr-1 text-emerald-400" /> : <Copy className="size-3.5 mr-1" />}
+                <div className="flex items-center gap-1.5 transition-opacity">
+                  <Button variant="ghost" size="sm" onClick={handleCopy} className="h-7 px-2 text-neutral-500 hover:text-white hover:bg-neutral-800 text-[11px]">
+                    {copied ? <Check className="size-3 mr-1.5 text-emerald-400" /> : <Copy className="size-3 mr-1.5" />}
                     {copied ? 'Copiado' : 'Copiar'}
                   </Button>
                   {isLatest && onRetry && (
-                    <Button variant="ghost" size="sm" onClick={onRetry} className="h-7 text-neutral-400 hover:text-white">
-                      <RotateCcw className="size-3.5 mr-1" /> Reintentar
+                    <Button variant="ghost" size="sm" onClick={onRetry} className="h-7 px-2 text-neutral-500 hover:text-white hover:bg-neutral-800 text-[11px]">
+                      <RotateCcw className="size-3 mr-1.5" /> Reintentar
                     </Button>
                   )}
                 </div>
               </div>
-              {createdAt && <div className="text-[10px] text-neutral-500">{new Date(createdAt).toLocaleTimeString()}</div>}
             </div>
           )}
         </div>
       </div>
 
-      {/* --- MODAL DE ZOOM (Corregido) --- */}
+      {/* --- MODAL ZOOM --- */}
       {isZoomed && imageDataUrl && (
         <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-200 backdrop-blur-sm"
           onClick={() => setIsZoomed(false)}
         >
           <Button 
-            className="absolute top-6 right-6 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white z-[101]"
+            className="absolute top-4 right-4 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white z-[101] size-10 border border-neutral-700"
             size="icon"
             onClick={(e) => { e.stopPropagation(); setIsZoomed(false); }}
           >
@@ -823,7 +874,7 @@ export function ChatMessage({
           
           <img 
             src={resolveImageUrl(imageDataUrl) || imageDataUrl} 
-            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            className="max-w-full max-h-[85vh] w-auto h-auto object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
             alt="Zoom"
             onClick={(e) => e.stopPropagation()} 
           />
@@ -831,7 +882,7 @@ export function ChatMessage({
           <div className="absolute bottom-8 flex gap-4 z-[101]">
             <Button 
               onClick={(e) => { e.stopPropagation(); downloadImage(imageDataUrl); }}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/50"
             >
               <Download className="size-4 mr-2" /> Descargar Original
             </Button>
