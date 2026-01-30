@@ -236,7 +236,6 @@ function ProcessingModal({ isOpen, steps }: { isOpen: boolean; steps: ProcessSte
 }
 
 // --- COMPONENTES AUXILIARES ---
-
 function SearchableSelect({
   action,
   value,
@@ -259,20 +258,29 @@ function SearchableSelect({
           role="combobox"
           disabled={disabled}
           aria-expanded={open}
-          className={`w-full justify-between h-10 bg-neutral-900 border-neutral-800 text-neutral-50 text-sm hover:bg-neutral-800 truncate ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`w-full justify-between h-10 bg-neutral-900 border-neutral-800 text-neutral-50 text-sm transition-all
+            ${open ? 'border-emerald-500/50 ring-2 ring-emerald-500/20' : 'hover:border-neutral-600'} 
+            ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
-          <span className="truncate text-left flex-1">{display}</span>
-          {!disabled && <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-60" />}
+          <span className="truncate text-left flex-1 font-medium">{display}</span>
+          {!disabled && <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-100 text-neutral-400" />}
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] p-0 bg-neutral-900 border-neutral-800"
+        className="w-[var(--radix-popover-trigger-width)] p-0 bg-neutral-900 border-neutral-700 shadow-xl"
         align="start"
       >
-        <Command>
-          <CommandInput placeholder={action.placeholder || 'Buscar...'} className="text-sm" />
-          <CommandList>
-            <CommandEmpty>Sin resultados</CommandEmpty>
+        <Command className="bg-transparent">
+          {/* CAMBIO AQUÍ: 
+            [&_svg]:text-white -> Pone el icono en blanco puro.
+            [&_svg]:opacity-100 -> Asegura que no tenga transparencia heredada.
+          */}
+          <CommandInput 
+            placeholder={action.placeholder || 'Buscar...'} 
+            className="text-sm text-neutral-50 placeholder:text-neutral-500 [&_svg]:text-white [&_svg]:opacity-100" 
+          />
+          <CommandList className="border-t border-neutral-800">
+            <CommandEmpty className="py-3 text-sm text-neutral-500 text-center">Sin resultados</CommandEmpty>
             <CommandGroup>
               {action.options?.map((opt) => (
                 <CommandItem
@@ -282,9 +290,9 @@ function SearchableSelect({
                     onChange(val);
                     setOpen(false);
                   }}
-                  className="text-sm py-2"
+                  className="text-sm py-2.5 text-neutral-100 aria-selected:bg-neutral-800 aria-selected:text-white cursor-pointer"
                 >
-                  <CheckIcon className={`mr-2 h-4 w-4 ${value === opt ? 'opacity-100' : 'opacity-0'}`} />
+                  <CheckIcon className={`mr-2 h-4 w-4 text-emerald-400 ${value === opt ? 'opacity-100' : 'opacity-0'}`} />
                   <span className="truncate">{opt}</span>
                 </CommandItem>
               ))}
@@ -295,7 +303,6 @@ function SearchableSelect({
     </Popover>
   );
 }
-
 function ImagePreview({ 
   src, 
   alt, 
