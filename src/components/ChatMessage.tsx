@@ -2,15 +2,28 @@ import { useEffect, useState, useMemo } from 'react';
 import { 
   Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
   Copy, RotateCcw, MapPin, Maximize2, Download, Eye, EyeOff, X, ImageOff, Loader2,
-  Server, HardDrive, Network
+  Server, HardDrive, Network, Lock, Settings2, CheckCircle2, Circle
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { useAuth } from '../contexts/AuthContext';
 
+// --- CONSTANTES DE CONFIGURACIÓN DEL FORMULARIO ---
+const HIDDEN_FIELDS = ['auth-olt_id', 'auth-pon_type', 'auth-board', 'auth-onu_mode'];
+const READ_ONLY_FIELDS = ['auth-name', 'auth-sn'];
+const AUTO_SELECT_FIELDS = ['auth-onu_type', 'auth-vlan', 'auth-zone'];
+
 // --- TIPOS ---
+
+// Tipo explícito para los pasos del proceso
+type ProcessStep = {
+  id: string;
+  label: string;
+  status: 'pending' | 'loading' | 'complete' | 'error';
+};
 
 type OnuEntry = {
   id: string;
@@ -50,6 +63,8 @@ type ActionOption = {
   payload?: string;
   helperText?: string;
   url?: string;
+  value?: string;
+  disabled?: boolean;
 };
 
 type SmartoltAvailability = {
@@ -163,16 +178,75 @@ const parseMarkdownTableToInstallations = (content: string, actions?: ActionOpti
   }
 };
 
+// --- COMPONENTE: MODAL DE PROCESAMIENTO ---
+// Corrección: Usamos ProcessStep[] en lugar de any[]
+function ProcessingModal({ isOpen, steps }: { isOpen: boolean; steps: ProcessStep[] }) {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md px-4"
+        >
+          <motion.div
+            initial={{ scale: 0.9, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-neutral-900 border border-neutral-800 p-8 rounded-3xl shadow-2xl max-w-sm w-full"
+          >
+            <div className="flex flex-col items-center text-center mb-8">
+              <div className="h-16 w-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mb-4 text-emerald-500">
+                <Settings2 className="animate-spin size-8" />
+              </div>
+              <h3 className="text-xl font-bold text-white">Configurando Acceso</h3>
+              <p className="text-neutral-500 text-sm mt-1">Sincronizando con SmartOLT y Geonet</p>
+            </div>
+
+            <div className="space-y-5">
+              {steps.map((step) => (
+                <motion.div 
+                  key={step.id} 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="flex items-center gap-4"
+                >
+                  {step.status === 'loading' ? (
+                    <Loader2 className="size-5 text-emerald-500 animate-spin" />
+                  ) : step.status === 'complete' ? (
+                    <CheckCircle2 className="size-5 text-emerald-500" />
+                  ) : (
+                    <Circle className="size-5 text-neutral-700" />
+                  )}
+                  <span className={`text-sm font-medium transition-colors ${
+                    step.status === 'loading' ? 'text-white' : 
+                    step.status === 'complete' ? 'text-neutral-400' : 'text-neutral-600'
+                  }`}>
+                    {step.label}
+                  </span>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 // --- COMPONENTES AUXILIARES ---
 
 function SearchableSelect({
   action,
   value,
   onChange,
+  disabled
 }: {
   action: ActionOption;
   value: string;
   onChange: (val: string) => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const display = value || 'Selecciona una opción';
@@ -183,11 +257,12 @@ function SearchableSelect({
         <Button
           variant="outline"
           role="combobox"
+          disabled={disabled}
           aria-expanded={open}
-          className="w-full justify-between h-10 bg-neutral-900 border-neutral-800 text-neutral-50 text-sm hover:bg-neutral-800 truncate"
+          className={`w-full justify-between h-10 bg-neutral-900 border-neutral-800 text-neutral-50 text-sm hover:bg-neutral-800 truncate ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           <span className="truncate text-left flex-1">{display}</span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-60" />
+          {!disabled && <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-60" />}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -325,11 +400,72 @@ export function ChatMessage({
     onuId?: string;
   } | null>(null);
   const [wifiError, setWifiError] = useState<string | null>(null);
-  const [showWifiPass, setShowWifiPass] = useState(false); // <--- Estado para mostrar contraseña
+  const [showWifiPass, setShowWifiPass] = useState(false);
   
   // Estado para la animación
   const [displayedContent, setDisplayedContent] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+
+  // Estados de Procesamiento (Modal) - Corrección: Tipado explícito
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processSteps, setProcessSteps] = useState<ProcessStep[]>([
+    { id: 'auth', label: 'Validando en SmartOLT', status: 'pending' },
+    { id: 'wan', label: 'Provisionando servicio WAN', status: 'pending' },
+    { id: 'geonet', label: 'Registrando en Geonet/WispHub', status: 'pending' }
+  ]);
+
+  // --- LÓGICA DE INICIALIZACIÓN Y AUTO-FILL ---
+  
+  useEffect(() => {
+    if (!actions || !Array.isArray(actions)) return;
+
+    const initialValues: Record<string, string> = {};
+
+    actions.forEach(action => {
+      // 1. Inicializar campos ocultos y de solo lectura
+      if (
+        (HIDDEN_FIELDS.includes(action.id) || READ_ONLY_FIELDS.includes(action.id)) && 
+        action.placeholder
+      ) {
+        initialValues[action.id] = action.placeholder;
+      }
+
+      // 2. Lógica de auto-selección
+      if (AUTO_SELECT_FIELDS.includes(action.id) && action.options?.length && action.placeholder) {
+        const placeholderVal = action.placeholder.trim();
+        
+        let match = action.options.find(opt => opt === placeholderVal);
+        
+        if (!match) {
+          match = action.options.find(opt => 
+            opt.startsWith(placeholderVal + ' ') || 
+            opt.startsWith(placeholderVal + '-')
+          );
+        }
+
+        if (match) {
+          initialValues[action.id] = match;
+          
+          if (action.id === 'auth-zone') {
+             setTimeout(() => fetchOdbOptionsForZone(match!), 100);
+          }
+        }
+      }
+    });
+
+    setInputValues(prev => {
+      const next = { ...prev };
+      let changed = false;
+      Object.entries(initialValues).forEach(([k, v]) => {
+        if (!next[k] && v) {
+          next[k] = v;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+
+  }, [actions]);
 
   // --- LÓGICA DE PROCESAMIENTO DE DATOS ---
 
@@ -346,12 +482,11 @@ export function ChatMessage({
   
   const hasInstallationsTable = Boolean(installations.length);
 
-  // --- LÓGICA DE ANIMACIÓN CORREGIDA ---
+  // --- LÓGICA DE ANIMACIÓN ---
   
   const finalCleanText = useMemo(() => {
     if (isUser) return content;
     
-    // Si hay datos estructurados, limpiamos el Markdown para no animarlo
     if (hasInstallationsTable || hasSmartoltTable) {
         const tableRegex = /^\|.*\|[\s\S]*?(\n(?![ \t]*\|)|$)/gm;
         const cleaned = content.replace(tableRegex, '').trim();
@@ -461,7 +596,9 @@ export function ChatMessage({
   const inputActions = useMemo(() => {
     const rawInputs = safeActions.filter((a) => a.type === 'input');
     const hasSpeedPrev = !!inputValues['auth-speed'] || !!inputValues['auth-download'] || !!inputValues['auth-upload'];
+    
     const filtered = rawInputs.filter((a) => {
+        if (HIDDEN_FIELDS.includes(a.id)) return false;
         if (selectedOnu && ["auth-olt_id", "auth-board", "auth-port"].includes(a.id)) return false;
         return !["auth-download", "auth-upload"].includes(a.id);
     }).map(a => ({ ...a, options: dynamicOptions[a.id] || a.options }));
@@ -498,37 +635,76 @@ export function ChatMessage({
   const selectionIds = new Set(selectionButtonsToRender.map(a => a.id));
   const otherButtons = buttonActions.filter(a => a.id !== submitAction?.id && !selectionIds.has(a.id) && !a.id.startsWith('select-installation-'));
   
-  const handleBulkSubmit = async () => {
+const handleBulkSubmit = async () => {
+    // 1. Identificar el tipo de acción
     const isWanFlow = submitAction?.id === 'wan-apply';
     const isWifiFlow = submitAction?.id === 'wifi_submit'; 
-    
+    const isAuth = submitAction?.id === 'auth-submit';
+
+    // 2. Validación específica para WiFi (antes de procesar nada)
     if (isWifiFlow) {
       const pass = inputValues['wifi_pass'] || '';
+      // Regex: Mínimo 8 caracteres, al menos 1 mayúscula y 1 número
       const passRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
       if (!passRegex.test(pass)) {
         setWifiError("La contraseña debe tener mín. 8 caracteres, 1 mayúscula y 1 número.");
-        return; 
+        return; // Detener ejecución si la validación falla
       }
       setWifiError(null);
     }
 
+    // 3. Preparación del Modal para flujo de Autorización
+    if (isAuth) {
+      setIsProcessing(true);
+      // Estado inicial: El primero "cargando", los demás "pendientes"
+      setProcessSteps([
+        { id: 'auth', label: 'Validando en SmartOLT', status: 'loading' },
+        { id: 'wan', label: 'Provisionando servicio WAN', status: 'pending' },
+        { id: 'geonet', label: 'Registrando en Geonet/WispHub', status: 'pending' }
+      ]);
+    }
+
+    // 4. Recolección de Datos (Inputs + ONU Seleccionada)
     const collected: Record<string, string> = {};
     let speedValue = '';
 
-    for (const action of inputActions) {
+    // Asegurarnos de incluir 'auth-speed' en la recolección si existe en los inputs dinámicos
+    const allInputActions = [...safeActions];
+    if (inputActions.some(a => a.id === 'auth-speed') && !allInputActions.find(a => a.id === 'auth-speed')) {
+        allInputActions.push({ id: 'auth-speed', label: 'Speed', type: 'input' });
+    }
+
+    for (const action of allInputActions) {
+      if (action.type !== 'input') continue;
+
       const val = (inputValues[action.id] || action.placeholder || '').toString().trim();
-      if (!val && action.id !== 'auth-sn' && !action.id.startsWith('wifi_')) continue;
-      if (action.id === 'auth-speed') { speedValue = normalizeSpeedProfile(val); continue; }
+      
+      // Ignorar campos vacíos que no sean estrictamente necesarios (excepto SN o Wifi)
+      if (!val && action.id !== 'auth-sn' && !action.id.startsWith('wifi_') && !HIDDEN_FIELDS.includes(action.id)) continue;
+      
+      // Normalizar velocidad si es necesario
+      if (action.id === 'auth-speed') { 
+        speedValue = normalizeSpeedProfile(val); 
+        continue; 
+      }
+
+      // Limpiar prefijos de las claves (auth- o wan-)
       const key = action.id.startsWith('wifi_') ? action.id : action.id.replace(/^auth-|^wan-/, '');
       collected[key] = val;
     }
 
+    // Asignar perfiles de velocidad si se detectaron
     if (speedValue) {
       collected['download_speed_profile_name'] = speedValue;
       collected['upload_speed_profile_name'] = speedValue;
     }
-    if (selectedOnu) Object.assign(collected, selectedOnu);
 
+    // Fusionar con los datos de la ONU seleccionada (Board, Port, SN, etc.)
+    if (selectedOnu) {
+      Object.assign(collected, selectedOnu);
+    }
+
+    // Preparar payload para acciones genéricas (reemplazo de variables como {ssid})
     let finalPayload = submitAction?.payload || '';
     if (isWifiFlow && finalPayload) {
       Object.keys(collected).forEach((key) => {
@@ -536,13 +712,67 @@ export function ChatMessage({
       });
     }
 
-    if (isWifiFlow) {
-      if (onSubmitAction) await onSubmitAction(finalPayload, collected);
-      else if (onActionSelect) onActionSelect(finalPayload);
-    } else if (isWanFlow) await onSubmitWan?.(collected);
-    else await onSubmitAuth?.(collected);
-  };
+    // 5. Ejecución de la Promesa (Try / Catch)
+    try {
+      if (isAuth) {
+        // A) FLUJO DE AUTORIZACIÓN (CON MODAL)
+        
+        // PASO CRÍTICO: Esperar a que el backend termine el proceso real.
+        // El modal se queda en estado "loading" en el primer paso mientras esto ocurre.
+        await onSubmitAuth?.(collected);
+        
+        // --- ZONA DE ÉXITO ---
+        // Si la línea de arriba no lanza error, procedemos a mostrar los ticks verdes secuencialmente.
+        
+        // 1. Marcar Auth como completado
+        setProcessSteps(prev => prev.map(s => s.id === 'auth' ? { ...s, status: 'complete' } : s));
+        await new Promise(r => setTimeout(r, 300)); // Pausa visual
+        
+        // 2. Marcar Wan como completado (simulación visual de pasos rápidos)
+        setProcessSteps(prev => prev.map(s => s.id === 'wan' ? { ...s, status: 'complete' } : s));
+        await new Promise(r => setTimeout(r, 300)); 
+        
+        // 3. Marcar Geonet como completado
+        setProcessSteps(prev => prev.map(s => ({ ...s, status: 'complete' })));
+        await new Promise(r => setTimeout(r, 600)); // Pausa final para ver todo verde
+        
+        // Cerrar modal
+        setIsProcessing(false);
 
+      } 
+      else if (isWifiFlow) {
+        // B) FLUJO WIFI
+        if (onSubmitAction) await onSubmitAction(finalPayload, collected);
+        else if (onActionSelect) onActionSelect(finalPayload);
+      } 
+      else if (isWanFlow) {
+        // C) FLUJO WAN
+        await onSubmitWan?.(collected);
+      } 
+      else {
+        // D) DEFAULT
+        await onSubmitAuth?.(collected);
+      }
+
+    } catch (e) {
+      console.error("Error en submit:", e);
+
+      // --- ZONA DE ERROR (SOLO PARA AUTH) ---
+      if (isAuth) {
+        // Buscamos cuál paso se quedó cargando y lo marcamos como ERROR (X Roja)
+        setProcessSteps(prev => prev.map(s => 
+          s.status === 'loading' ? { ...s, status: 'error' } : s
+        ));
+
+        // Importante: Esperamos 2.5 segundos manteniendo el modal abierto
+        // para que el usuario pueda ver la X roja y leer "Falló la operación".
+        await new Promise(r => setTimeout(r, 2500));
+        
+        setIsProcessing(false);
+      }
+      // Nota: Para otros flujos (Wifi/Wan) podrías poner un toast de error aquí si quisieras.
+    }
+  };
   const hasVersions = versions && versions.length > 1;
   const currentIdx = currentVersion ?? 0;
 
@@ -598,7 +828,7 @@ export function ChatMessage({
 
               {/* --- TABLA INSTALACIONES (RESPONSIVE) --- */}
               {hasInstallationsTable && (
-                <div className="mt-4 space-y-3">
+                <div className="mt-4 space-y-3 w-[90%] mx-auto md:w-full md:mx-0">
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
                     <span className="h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_3px_rgba(99,102,241,0.15)]" />
                     Instalaciones Pendientes
@@ -614,19 +844,15 @@ export function ChatMessage({
                     <div className="divide-y divide-neutral-800/60">
                       {installations.map((inst) => (
                         <div key={inst.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center px-4 py-4 md:py-3 gap-3 md:gap-2 text-sm text-neutral-100 hover:bg-neutral-800/40 transition-colors">
-                          
                           <div className="flex justify-between items-center md:hidden pb-2 border-b border-neutral-800/50">
                              <span className="text-xs font-mono text-neutral-500">#{inst.id}</span>
                              <span className="text-[10px] text-neutral-500 uppercase font-medium">Instalación</span>
                           </div>
-
                           <div className="md:col-span-1 font-mono text-xs text-neutral-500 hidden md:block">{inst.id}</div>
-                          
                           <div className="md:col-span-4 font-medium flex flex-col">
                             <span className="md:hidden text-[10px] text-neutral-500 uppercase mb-0.5">Cliente</span>
                             <span title={inst.clientName} className="break-words">{inst.clientName}</span>
                           </div>
-                          
                           <div className="md:col-span-5 text-xs text-neutral-400 flex flex-col md:flex-row md:items-center gap-1.5">
                             <span className="md:hidden text-[10px] text-neutral-500 uppercase mt-2 mb-0.5">Dirección</span>
                             <div className="flex items-start gap-1.5">
@@ -634,7 +860,6 @@ export function ChatMessage({
                               <span className="break-words">{inst.address}</span>
                             </div>
                           </div>
-                          
                           <div className="md:col-span-2 md:text-right mt-2 md:mt-0">
                             <Button 
                               size="sm" 
@@ -653,13 +878,13 @@ export function ChatMessage({
 
               {/* --- TABLA SMARTOLT (RESPONSIVE) --- */}
               {hasSmartoltTable && (
-                <div className="mt-4 space-y-4">
+                <div className="mt-4 space-y-4 w-[90%] mx-auto md:w-full md:mx-0">
                    <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" /> Disponibilidad SmartOLT
                   </div>
                   {smartoltAvailability?.olts?.map((olt) => (
                     <div key={olt.oltId} className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 shadow-sm">
-                      <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+                       <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                         <div className="flex items-center gap-2">
                            <Server className="size-4 text-emerald-600"/>
                            <div className="text-sm font-bold text-emerald-500 uppercase tracking-wider">
@@ -670,7 +895,6 @@ export function ChatMessage({
                           {olt.onus.length} ONUs
                         </span>
                       </div>
-                      
                       <div className="overflow-hidden rounded-lg border border-neutral-800/70 bg-black/20">
                         <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 bg-neutral-800/50 text-[11px] font-bold text-neutral-500 uppercase">
                           <div className="col-span-2">SN / Label</div>
@@ -680,12 +904,10 @@ export function ChatMessage({
                           <div className="col-span-2 text-center">Modelo</div>
                           <div className="col-span-1 text-right">Acción</div>
                         </div>
-                        
                         <div className="divide-y divide-neutral-800">
                           {olt.onus.map((onu) => (
                             <div key={onu.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-2 px-4 py-4 md:py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
-                              
-                              <div className="col-span-12 md:col-span-2 flex flex-row md:flex-col justify-between items-start md:justify-center">
+                               <div className="col-span-12 md:col-span-2 flex flex-row md:flex-col justify-between items-start md:justify-center">
                                 <div className="flex flex-col">
                                     <span className="font-medium text-neutral-200 truncate">{onu.label}</span>
                                     <span className="text-[11px] font-mono text-neutral-500 uppercase bg-neutral-900/50 px-1 rounded w-fit mt-0.5">{onu.sn || 'Sin SN'}</span>
@@ -694,30 +916,25 @@ export function ChatMessage({
                                   {onu.ponType || 'GPON'}
                                 </span>
                               </div>
-
                               <div className="hidden md:block col-span-4 md:col-span-1">
                                 <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
                                   {onu.ponType || 'GPON'}
                                 </span>
                               </div>
-                              
                               <div className="col-span-4 md:col-span-2 flex items-center md:justify-center gap-2 text-neutral-300">
                                 <Network className="size-3.5 md:hidden text-neutral-500" />
                                 <span className="md:hidden text-neutral-500 text-xs">Puerto:</span>
                                 <span className="font-mono bg-neutral-800/40 px-1.5 py-0.5 rounded">{onu.board}/{onu.port}/{onu.ponPort}</span>
                               </div>
-
                               <div className="col-span-12 md:col-span-4 text-xs text-neutral-400 italic truncate flex items-center gap-2">
                                 <span className="md:hidden not-italic font-semibold text-neutral-500">Desc:</span>
                                 {onu.description || 'Sin descripción'}
                               </div>
-                              
                               <div className="col-span-4 md:col-span-2 md:text-center text-neutral-400 flex items-center md:justify-center gap-2">
                                 <HardDrive className="size-3.5 md:hidden text-neutral-500" />
                                 <span className="md:hidden text-neutral-500 text-xs">Modelo:</span>
                                 {onu.type || onu.model || 'N/A'}
                               </div>
-                              
                               <div className="col-span-12 md:col-span-1 text-right mt-1 md:mt-0">
                                 <Button 
                                   size="sm" 
@@ -739,7 +956,7 @@ export function ChatMessage({
               {/* --- BOTONES Y ACCIONES --- */}
               <div className="mt-2 space-y-4">
                 {selectionButtonsToRender.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-[90%] mx-auto md:w-full md:mx-0">
                     {selectionButtonsToRender.map(a => (
                       <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
                         {a.label}
@@ -749,7 +966,7 @@ export function ChatMessage({
                 )}
                 
                 {otherButtons.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 w-[90%] mx-auto md:w-full md:mx-0 justify-center md:justify-start">
                     {otherButtons.map(a => {
                        if (a.type === 'link' && a.url) {
                         const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
@@ -772,52 +989,68 @@ export function ChatMessage({
                 )}
 
                 {inputActions.length > 0 && (
-                  <div className="space-y-4 bg-neutral-900/40 p-5 rounded-2xl border border-neutral-800/60 shadow-inner">
-                    {inputActions.map(action => (
-                      <div key={action.id} className="space-y-2">
-                        <div className="text-xs text-neutral-400 font-medium ml-1">{action.label}</div>
-                        {action.options?.length ? (
-                          <SearchableSelect action={action} value={inputValues[action.id] || ''} onChange={(val) => {
-                            setInputValues(p => ({ ...p, [action.id]: val }));
-                            if (action.id === 'auth-zone') fetchOdbOptionsForZone(val);
-                            if (action.id === 'auth-odb') fetchPortsForOdb(val);
-                          }} />
-                        ) : (
-                          <div className="relative">
-                            <Input 
-                              value={inputValues[action.id] || ''} 
-                              type={action.id === 'wifi_pass' && !showWifiPass ? 'password' : 'text'}
-                              onChange={(e) => {
-                                setInputValues(p => ({ ...p, [action.id]: e.target.value }));
-                                if (action.id === 'wifi_pass') setWifiError(null);
-                              }} 
-                              placeholder={action.placeholder} 
-                              className={`h-10 bg-neutral-950 border-neutral-800 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${action.id === 'wifi_pass' ? 'pr-10' : ''} ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500' : ''}`} 
-                            />
-                            
-                            {action.id === 'wifi_pass' && (
-                              <button
-                                type="button"
-                                onClick={() => setShowWifiPass(!showWifiPass)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors focus:outline-none"
-                                tabIndex={-1}
-                              >
-                                {showWifiPass ? (
-                                  <EyeOff className="size-4" />
-                                ) : (
-                                  <Eye className="size-4" />
-                                )}
-                              </button>
-                            )}
-
-                            {action.helperText && !wifiError && <div className="text-[10px] text-neutral-600 mt-1 ml-1">{action.helperText}</div>}
+                  <div className="space-y-4 bg-neutral-900/40 p-5 rounded-2xl border border-neutral-800/60 shadow-inner w-[90%] mx-auto md:w-full md:mx-0">
+                    {inputActions.map(action => {
+                      // Determinar si es Read-Only
+                      const isReadOnly = READ_ONLY_FIELDS.includes(action.id);
+                      
+                      return (
+                        <div key={action.id} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs text-neutral-400 font-medium ml-1">{action.label}</div>
+                            {isReadOnly && <Lock className="size-3 text-neutral-600" />}
                           </div>
-                        )}
-                        {action.id === 'wifi_pass' && wifiError && (
-                          <span className="text-[10px] text-red-500 mt-1 block animate-in slide-in-from-top-1 ml-1">{wifiError}</span>
-                        )}
-                      </div>
-                    ))}
+                          
+                          {action.options?.length ? (
+                            <SearchableSelect 
+                              action={action} 
+                              value={inputValues[action.id] || ''} 
+                              disabled={isReadOnly || action.disabled}
+                              onChange={(val) => {
+                                setInputValues(p => ({ ...p, [action.id]: val }));
+                                if (action.id === 'auth-zone') fetchOdbOptionsForZone(val);
+                                if (action.id === 'auth-odb') fetchPortsForOdb(val);
+                              }} 
+                            />
+                          ) : (
+                            <div className="relative">
+                              <Input 
+                                value={inputValues[action.id] || ''} 
+                                type={action.id === 'wifi_pass' && !showWifiPass ? 'password' : 'text'}
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly || action.disabled}
+                                onChange={(e) => {
+                                  setInputValues(p => ({ ...p, [action.id]: e.target.value }));
+                                  if (action.id === 'wifi_pass') setWifiError(null);
+                                }} 
+                                placeholder={action.placeholder} 
+                                className={`h-10 bg-neutral-950 border-neutral-800 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${action.id === 'wifi_pass' ? 'pr-10' : ''} ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500' : ''} ${isReadOnly ? 'opacity-60 cursor-not-allowed bg-neutral-900 text-neutral-400 select-none' : ''}`} 
+                              />
+                              
+                              {action.id === 'wifi_pass' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowWifiPass(!showWifiPass)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors focus:outline-none"
+                                  tabIndex={-1}
+                                >
+                                  {showWifiPass ? (
+                                    <EyeOff className="size-4" />
+                                  ) : (
+                                    <Eye className="size-4" />
+                                  )}
+                                </button>
+                              )}
+
+                              {action.helperText && !wifiError && <div className="text-[10px] text-neutral-600 mt-1 ml-1">{action.helperText}</div>}
+                            </div>
+                          )}
+                          {action.id === 'wifi_pass' && wifiError && (
+                            <span className="text-[10px] text-red-500 mt-1 block animate-in slide-in-from-top-1 ml-1">{wifiError}</span>
+                          )}
+                        </div>
+                      );
+                    })}
                     {submitAction && (
                       <Button 
                         className={`w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold mt-2 shadow-lg shadow-emerald-900/20 transition-all ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -857,6 +1090,9 @@ export function ChatMessage({
           )}
         </div>
       </div>
+
+      {/* --- MODAL PROCESAMIENTO --- */}
+      <ProcessingModal isOpen={isProcessing} steps={processSteps} />
 
       {/* --- MODAL ZOOM --- */}
       {isZoomed && imageDataUrl && (

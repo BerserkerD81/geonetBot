@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Bot, Lock, Mail, AlertCircle, Loader2, ArrowLeft } from 'lucide-react';
+import { Bot, Lock, Mail, AlertCircle, Loader2, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 export function LoginPage() {
   const { login, setup2fa, verify2faSetup, verify2faLogin } = useAuth();
@@ -20,13 +20,14 @@ export function LoginPage() {
   
   const tokenInputRef = useRef<HTMLInputElement>(null);
 
+  // Focus automático al cambiar a 2FA
   useEffect(() => {
     if (step !== 'credentials') {
       setTimeout(() => tokenInputRef.current?.focus(), 100);
     }
   }, [step]);
 
-  // Si el token llega a 6 dígitos, enviamos automáticamente para mejorar la UX
+  // Auto-envío al completar 6 dígitos
   useEffect(() => {
     if (twoFactorToken.length === 6 && step !== 'credentials') {
       handleVerify2fa(new Event('submit') as unknown as FormEvent<HTMLFormElement>);
@@ -57,11 +58,7 @@ export function LoginPage() {
         setStep('verify2fa');
       }
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message || 'Error de conexión');
-      } else {
-        setError('Error de conexión');
-      }
+      setError(err instanceof Error ? err.message : 'Error de conexión');
     } finally {
       setIsLoading(false);
     }
@@ -74,19 +71,26 @@ export function LoginPage() {
     setIsLoading(true);
 
     let success = false;
-    if (step === 'setup2fa') {
-      success = await verify2faSetup(twoFactorToken);
-    } else {
-      if (!pendingUserId) {
-        setStep('credentials');
-        setIsLoading(false);
-        return;
+    try {
+      if (step === 'setup2fa') {
+        success = await verify2faSetup(twoFactorToken);
+      } else {
+        if (!pendingUserId) {
+          setStep('credentials');
+          setIsLoading(false);
+          return;
+        }
+        success = await verify2faLogin(pendingUserId, twoFactorToken);
       }
-      success = await verify2faLogin(pendingUserId, twoFactorToken);
-    }
 
-    if (!success) {
-      setError('Código incorrecto');
+      if (!success) {
+        setError('Código incorrecto. Verifica tu autenticador.');
+        setTwoFactorToken(''); // Limpiamos para facilitar reintento
+        tokenInputRef.current?.focus();
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? `Error al validar el código: ${err.message}` : 'Error al validar el código');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -139,7 +143,7 @@ export function LoginPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="password" university-className="text-xs font-medium text-neutral-400 ml-1">Contraseña</Label>
+                    <Label htmlFor="password" className="text-xs font-medium text-neutral-400 ml-1">Contraseña</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-neutral-600" />
                       <Input
@@ -157,10 +161,14 @@ export function LoginPage() {
                 </div>
 
                 {error && (
-                  <div className="flex items-center gap-2 p-3 bg-red-500/5 border border-red-500/20 rounded-lg text-red-500 text-xs">
+                  <motion.div 
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex items-center gap-2 p-3 bg-red-500/5 border border-red-500/20 rounded-lg text-red-500 text-xs"
+                  >
                     <AlertCircle className="size-4 shrink-0" />
                     {error}
-                  </div>
+                  </motion.div>
                 )}
 
                 <Button
@@ -175,51 +183,82 @@ export function LoginPage() {
               <motion.form
                 key="2fa"
                 initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
+                animate={{ 
+                  opacity: 1, 
+                  scale: 1,
+                  x: error ? [0, -10, 10, -10, 10, 0] : 0 // Efecto de vibración si falla
+                }}
                 exit={{ opacity: 0, scale: 0.98 }}
                 onSubmit={handleVerify2fa}
                 className="space-y-6"
               >
                 <div className="text-center">
-                  <h2 className="text-white font-semibold">Doble Factor</h2>
+                  <div className="inline-flex items-center justify-center p-2 bg-emerald-500/10 rounded-full mb-3">
+                    <ShieldCheck className="text-emerald-500 size-5" />
+                  </div>
+                  <h2 className="text-white font-semibold italic">Doble Factor</h2>
                   <p className="text-xs text-neutral-500 mt-1">
                     {step === 'setup2fa' ? 'Configura tu autenticador' : 'Ingresa el código de seguridad'}
                   </p>
                 </div>
 
                 {step === 'setup2fa' && qrImage && (
-                  <div className="flex justify-center p-2 bg-white rounded-xl w-fit mx-auto shadow-lg">
+                  <div className="flex justify-center p-2 bg-white rounded-xl w-fit mx-auto shadow-lg border-4 border-neutral-800">
                     <img src={qrImage} alt="QR" className="w-32 h-32" />
                   </div>
                 )}
 
-                <Input
-                  ref={tokenInputRef}
-                  type="text"
-                  maxLength={6}
-                  value={twoFactorToken}
-                  onChange={(e) => setTwoFactorToken(e.target.value.replace(/\D/g, ''))}
-                  className="bg-neutral-950 border-neutral-800 text-white text-center text-2xl tracking-[0.4em] font-mono h-14 focus:border-emerald-500/50"
-                  placeholder="000000"
-                  required
-                  disabled={isLoading}
-                />
+                <div className="space-y-4">
+                  <Input
+                    ref={tokenInputRef}
+                    type="text"
+                    maxLength={6}
+                    value={twoFactorToken}
+                    onChange={(e) => {
+                      if (error) setError('');
+                      setTwoFactorToken(e.target.value.replace(/\D/g, ''));
+                    }}
+                    className={`bg-neutral-950 text-center text-2xl tracking-[0.4em] font-mono h-14 transition-all duration-300 ${
+                      error 
+                        ? 'border-red-500 text-red-500 focus:border-red-500' 
+                        : 'border-neutral-800 text-white focus:border-emerald-500/50'
+                    }`}
+                    placeholder="000000"
+                    required
+                    disabled={isLoading}
+                  />
+
+                  {error && (
+                    <motion.p 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-center text-red-500 text-xs font-medium"
+                    >
+                      {error}
+                    </motion.p>
+                  )}
+                </div>
 
                 <Button
                   type="submit"
                   disabled={isLoading || twoFactorToken.length < 6}
-                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg"
+                  className={`w-full h-11 font-semibold rounded-lg transition-colors ${
+                    error ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-500'
+                  } text-white`}
                 >
                   {isLoading ? <Loader2 className="animate-spin size-5" /> : 'Verificar Código'}
                 </Button>
 
                 <button
                   type="button"
-                  onClick={() => setStep('credentials')}
+                  onClick={() => {
+                    setError('');
+                    setStep('credentials');
+                  }}
                   className="w-full flex items-center justify-center gap-2 text-xs text-neutral-600 hover:text-neutral-400 transition-colors"
                 >
                   <ArrowLeft className="size-3" />
-                  Cancelar
+                  Volver al inicio
                 </button>
               </motion.form>
             )}

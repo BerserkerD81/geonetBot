@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { ChatSidebar } from './components/ChatSidebar';
@@ -7,12 +7,14 @@ import { ChatInput } from './components/ChatInput';
 import { EmptyChat } from './components/EmptyChat';
 import { SearchModal } from './components/SearchModal';
 import { ScrollArea } from './components/ui/scroll-area';
-import {Search, PanelLeft } from 'lucide-react';
+import { Search, PanelLeft, Loader2 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { AdminUserPanel } from './components/AdminUserPanel';
 import { UserAccountPanel } from './components/UserAccountPanel';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
+
+// --- TIPOS DE DATOS ---
 
 type SuggestedAction = {
   id: string;
@@ -27,13 +29,13 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  versions?: string[]; // Array of alternative versions for assistant messages
-  currentVersion?: number; // Index of the currently displayed version
-  timestamp?: number; // Timestamp to track new content generation
-  createdAt?: string; // Backend creation datetime
-  imageDataUrl?: string; // Optional image attached to  the message (user photo)
+  versions?: string[]; 
+  currentVersion?: number; 
+  timestamp?: number; 
+  createdAt?: string; 
+  imageDataUrl?: string; 
   actions?: SuggestedAction[];
-  metadata?: Record<string, any> | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 interface Chat {
@@ -44,11 +46,29 @@ interface Chat {
   messages: Message[];
   isAdminHistory?: boolean;
   ownerUserId?: number;
+  messagesLoaded?: boolean; 
+  hasMoreMessages?: boolean; 
+  isLoadingMore?: boolean;
 }
 
-// La lógica de respuestas ahora vive en el backend.
+type IntegrationStatus = {
+  wisphub: { ok: boolean; latencyMs?: number; error?: string };
+  smartolt: { ok: boolean; latencyMs?: number; error?: string };
+  meta?: { wisphubLastFullSyncAt?: string | null };
+};
 
-// Normaliza la URL del backend para funcionar tanto en dev como en prod.
+type AdminHistoryMessage = {
+  id: number;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+  imageUrl?: string | null;
+  actions?: SuggestedAction[];
+  metadata?: Record<string, unknown> | null;
+};
+
+// --- CONFIGURACIÓN API ---
+
 const API_BASE = (() => {
   const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
   if (envApi && envApi.trim()) {
@@ -58,49 +78,48 @@ const API_BASE = (() => {
   return `${protocol}//${hostname}:3000`;
 })();
 
+// --- COMPONENTE PRINCIPAL ---
+
 function ChatApp() {
   const { user, isAdmin } = useAuth();
   
-  // 1. CAMBIO: Inicializamos chats vacío. Ya no leemos del localStorage.
+  // Estado Principal
   const [chats, setChats] = useState<Chat[]>([]);
-  
   const [activeChat, setActiveChat] = useState<string | null>(null);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  
+  // UI States
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 768);
   const [searchOpen, setSearchOpen] = useState(false);
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showUserPanel, setShowUserPanel] = useState(false);
-  const retryNonceRef = useRef(0);
+  
+  // Scroll & Highlights
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null); 
+  const topSentinelRef = useRef<HTMLDivElement>(null);
+
   const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
   const [scrollRequestNonce, setScrollRequestNonce] = useState(0);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  
+  // Retry Logic
+  const retryNonceRef = useRef(0);
 
-  type IntegrationStatus = {
-    wisphub: { ok: boolean; latencyMs?: number; error?: string };
-    smartolt: { ok: boolean; latencyMs?: number; error?: string };
-    meta?: { wisphubLastFullSyncAt?: string | null };
-  };
+  // Status Polling
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
   const prevStatusRef = useRef<IntegrationStatus | null>(null);
-  
-  type AdminHistoryMessage = {
-    id: number;
-    role: 'user' | 'assistant';
-    content: string;
-    createdAt: string;
-    imageUrl?: string | null;
-    actions?: SuggestedAction[];
-    metadata?: Record<string, any> | null;
-  };
 
-  // 2. CAMBIO: useEffect para cargar los chats desde el Backend al iniciar
+  // -------------------------------------------------------------------------
+  // 1. CARGA INICIAL (SESIONES LISTA LIGERA)
+  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!user) return;
 
-    const fetchChats = async () => {
+    const fetchSessions = async () => {
       try {
-        const res = await fetch(`${API_BASE}/chat/history`, {
+        const res = await fetch(`${API_BASE}/chat/sessions`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -108,235 +127,207 @@ function ChatApp() {
 
         if (res.ok) {
           const data = await res.json();
-          // Cargamos los chats que vienen formateados del backend
-          setChats(data.chats || []);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const mappedChats: Chat[] = (data.sessions || []).map((s: any) => ({
+            id: String(s.id),
+            title: s.title || 'Conversación',
+            timestamp: new Date(s.createdAt).toLocaleDateString(),
+            preview: 'Cargar mensajes...', 
+            messages: [], 
+            messagesLoaded: false,
+            hasMoreMessages: true, 
+            isAdminHistory: false
+          }));
+          setChats(mappedChats);
         } else {
-          console.error('Error cargando historial de chats:', res.statusText);
+          console.error('Error cargando sesiones:', res.statusText);
         }
       } catch (error) {
-        console.error('Error de red al obtener chats:', error);
+        console.error('Error de red al obtener sesiones:', error);
       }
     };
 
-    fetchChats();
+    fetchSessions();
   }, [user]);
 
-  // NOTA: Se eliminó el useEffect que guardaba en localStorage `useEffect(() => { localStorage.setItem... }, [chats])`
+  useEffect(() => {
+    if (searchOpen) {
+      // Al abrir, bloqueamos el scroll del body
+      document.body.style.overflow = 'hidden';
+    } else {
+      // Al cerrar, restauramos el scroll normal
+      document.body.style.overflow = 'unset';
+    }
 
-  const openUserHistoryAsChat = useCallback(async (
-    userInfo: { id: number; email: string; name?: string },
-    options?: { focus?: boolean; closePanel?: boolean }
-  ) => {
-    const { focus = true, closePanel = true } = options ?? {};
+    // Cleanup: seguridad por si el componente se desmonta con el modal abierto
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [searchOpen]);
+// -------------------------------------------------------------------------
+const loadSessionMessages = useCallback(async (sessionId: string, options?: { aroundId?: string; beforeId?: string }) => {
+    const { aroundId, beforeId } = options || {};
+    
+    // 1. Buscamos el chat en el estado actual
+    const targetChat = chats.find(c => c.id === sessionId);
+    
+    // 2. Validaciones:
+    if (!targetChat) return; 
+    if (targetChat.isAdminHistory) return;
+    // Si ya está cargando datos (isLoadingMore), evitamos duplicar la petición (salvo si es un salto 'aroundId')
+    if (targetChat.isLoadingMore && !aroundId) return;
+    // Si ya tiene mensajes y no estamos pidiendo nada especial, salimos
+    if (targetChat.messagesLoaded && !aroundId && !beforeId) return;
 
-    if (!isAdmin) return;
+    // 3. UI Feedback
+    const isGlobalLoad = !beforeId; // Si no es scroll infinito, es carga fuerte
+    if (isGlobalLoad) setLoadingMessages(true);
+
+    // Marcamos loading local
+    setChats(prev => prev.map(c => c.id === sessionId ? { ...c, isLoadingMore: true } : c));
 
     try {
-      const res = await fetch(`${API_BASE}/admin/users/${userInfo.id}/messages`, {
-        credentials: 'include',
-      });
-      const data = await res.json();
+      // 4. Construcción de URL
+      const url = new URL(`${API_BASE}/chat/sessions/${sessionId}/messages`);
+      url.searchParams.append('limit', '20');
+
+      if (aroundId) {
+        // SOLUCIÓN AL ERROR: Convertimos a String explícitamente antes de replace
+        const val = String(aroundId);
+        const cleanId = val.replace('msg-', '');
+        if (cleanId && cleanId !== 'undefined') url.searchParams.append('aroundId', cleanId);
+      }
+      if (beforeId) {
+        // SOLUCIÓN AL ERROR: Convertimos a String explícitamente
+        const val = String(beforeId);
+        const cleanId = val.replace('msg-', '');
+        if (cleanId && cleanId !== 'undefined') url.searchParams.append('beforeId', cleanId);
+      }
+
+      // 5. Petición
+      const res = await fetch(url.toString(), { credentials: 'include' });
+      
       if (!res.ok) {
-        console.error('No se pudo cargar el historial de chats para admin', data.error);
-        return;
+          throw new Error(`Error ${res.status}: ${res.statusText}`);
       }
 
-      const history: AdminHistoryMessage[] = data.messages ?? [];
+      const data = await res.json();
+      
+      // 6. Mapeo
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const loadedMessages: Message[] = (data.messages || []).map((m: any) => ({
+        id: `msg-${m.id}`, 
+        role: m.role,
+        content: m.content,
+        imageDataUrl: m.imageUrl,
+        createdAt: m.createdAt,
+        actions: m.actions,
+        metadata: m.metadata
+      }));
 
-      if (history.length === 0) {
-        return;
-      }
+      // 7. Actualización de Estado
+      setChats(prev => prev.map(c => {
+        if (c.id === sessionId) {
+          let newMessages = c.messages;
 
-      const sortedHistory = [...history].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      );
-
-      const THRESHOLD_MS = 60 * 60 * 1000; // 60 minutos (Igual que en el backend)
-      const groups: AdminHistoryMessage[][] = [];
-      let currentGroup: AdminHistoryMessage[] = [];
-
-      for (let i = 0; i < sortedHistory.length; i++) {
-        const msg = sortedHistory[i];
-        if (currentGroup.length === 0) {
-          currentGroup.push(msg);
-          continue;
-        }
-        const prev = currentGroup[currentGroup.length - 1];
-        const diff =
-          new Date(msg.createdAt).getTime() -
-          new Date(prev.createdAt).getTime();
-        if (diff > THRESHOLD_MS) {
-          groups.push(currentGroup);
-          currentGroup = [msg];
-        } else {
-          currentGroup.push(msg);
-        }
-      }
-      if (currentGroup.length > 0) {
-        groups.push(currentGroup);
-      }
-
-      // Revertimos para que los más nuevos salgan arriba en la lista
-      const newChats: Chat[] = groups.reverse().map((group, idx) => {
-        const historyMessages: Message[] = group.map((m) => ({
-          id: `admin-${userInfo.id}-${m.id}`,
-          role: m.role,
-          content: m.content,
-          imageDataUrl: m.imageUrl ?? undefined,
-          createdAt: m.createdAt,
-          actions: m.actions ?? undefined,
-          metadata: (m as any).metadata ?? null,
-        }));
-
-        const latest = group[group.length - 1];
-        // Idx invertido visualmente si quieres, o secuencial
-        const chatId = `admin-history-${userInfo.id}-${idx + 1}`;
-
-        return {
-          id: chatId,
-          title: `Historial · ${userInfo.name ?? userInfo.email}`,
-          timestamp: latest ? new Date(latest.createdAt).toLocaleString() : 'Sin mensajes',
-          preview: latest ? latest.content.slice(0, 80) : 'Sin mensajes',
-          messages: historyMessages,
-          isAdminHistory: true,
-          ownerUserId: userInfo.id,
-        };
-      });
-
-      setChats((prev) => {
-        const withoutExisting = prev.filter(
-          (c) => !c.isAdminHistory || c.ownerUserId !== userInfo.id
-        );
-        return [...newChats, ...withoutExisting];
-      });
-
-      if (focus) {
-        const firstChatId = newChats[0]?.id;
-        if (firstChatId) {
-          setActiveChat(firstChatId);
-          setAnimatingMessageId(null);
-        }
-      }
-      if (closePanel) {
-        setShowAdminPanel(false);
-      }
-    } catch (error) {
-      console.error('Error al cargar historial de usuario para admin', error);
-    }
-  }, [isAdmin]);
-
-  // Precarga de historiales Admin
-  useEffect(() => {
-    if (!isAdmin) return;
-
-    const preloadAllHistories = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/admin/users`, {
-          credentials: 'include',
-        });
-        const data = await res.json();
-        if (!res.ok) return;
-
-        const users = (data.users ?? []) as { id: number; email: string; name?: string }[];
-
-        await Promise.all(
-          users.map((u) =>
-            openUserHistoryAsChat(u, { focus: false, closePanel: false })
-          )
-        );
-      } catch (error) {
-        console.error('Error al precargar historiales para admin', error);
-      }
-    };
-
-    void preloadAllHistories();
-  }, [isAdmin, openUserHistoryAsChat]);
-
-  const currentChat = chats.find((chat) => chat.id === activeChat);
-
-  // Detect mobile screen size
-  useEffect(() => {
-    const checkMobile = () => {
-      const isMobile = window.innerWidth < 768;
-      setSidebarCollapsed(isMobile);
-    };
-
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [currentChat?.messages]);
-
-  // Scroll to a specific message when requested from search
-  useEffect(() => {
-    if (!scrollToMessageId) return;
-  
-    const el = document.querySelector<HTMLElement>(`[data-message-id="${scrollToMessageId}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setHighlightedMessageId(scrollToMessageId);
-      setTimeout(() => setHighlightedMessageId(null), 2500);
-    }
-  }, [scrollRequestNonce, scrollToMessageId]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + K for search
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // Poll backend integrations status
-  useEffect(() => {
-    let cancelled = false;
-    const fetchStatus = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/integrations/status`, { credentials: 'include' });
-        const data = (await res.json()) as IntegrationStatus;
-        if (cancelled) return;
-
-        const prev = prevStatusRef.current;
-        setIntegrationStatus(data);
-
-        const transitions: Array<{ key: 'WispHub' | 'SmartOLT'; from?: boolean; to?: boolean }> = [];
-        if (prev) {
-          if (prev.wisphub.ok !== data.wisphub.ok) transitions.push({ key: 'WispHub', from: prev.wisphub.ok, to: data.wisphub.ok });
-          if (prev.smartolt.ok !== data.smartolt.ok) transitions.push({ key: 'SmartOLT', from: prev.smartolt.ok, to: data.smartolt.ok });
-        }
-        prevStatusRef.current = data;
-
-        for (const t of transitions) {
-          if (t.to) {
-            toast.success(`${t.key} conectado de nuevo`, { description: `Estado: OK` });
-          } else {
-            toast.error(`${t.key} desconectado`, { description: `El servicio no responde` });
+          // ESTRATEGIA A: Salto de Contexto (Búsqueda) -> Reemplazo total
+          if (aroundId) {
+              newMessages = loadedMessages;
+          } 
+          // ESTRATEGIA B: Scroll Infinito (Hacia arriba) -> Agregar al inicio
+          else if (beforeId) {
+              const existingIds = new Set(c.messages.map(m => m.id));
+              const uniqueNew = loadedMessages.filter(m => !existingIds.has(m.id));
+              newMessages = [...uniqueNew, ...c.messages];
+          } 
+          // ESTRATEGIA C: Carga Inicial -> Llenar
+          else {
+              newMessages = loadedMessages;
           }
+
+          const hasMore = loadedMessages.length >= 20;
+          const lastMsg = newMessages[newMessages.length - 1];
+
+          return {
+            ...c,
+            messages: newMessages,
+            preview: lastMsg ? lastMsg.content.substring(0, 50) : c.preview,
+            timestamp: lastMsg ? new Date(lastMsg.createdAt || '').toLocaleDateString() : c.timestamp,
+            messagesLoaded: true,
+            isLoadingMore: false,
+            hasMoreMessages: hasMore
+          };
         }
-      } catch (e) {
-        const prev = prevStatusRef.current;
-        if (prev && (prev.wisphub.ok || prev.smartolt.ok)) {
-          toast.error('Integraciones no disponibles');
+        return c;
+      }));
+
+    } catch (error) {
+      console.error("Error en loadSessionMessages:", error);
+      toast.error("No se pudo cargar el mensaje.");
+      setChats(prev => prev.map(c => c.id === sessionId ? { ...c, isLoadingMore: false } : c));
+    } finally {
+      if (isGlobalLoad) setLoadingMessages(false);
+    }
+  }, [chats]);
+// -------------------------------------------------------------------------
+// 3. SELECCIÓN DE CHAT Y SCROLL (CON PLACEHOLDER PARA BÚSQUEDA)
+// -------------------------------------------------------------------------
+const handleSelectChat = async (id: string, messageId?: string, metadata?: { title: string, timestamp: string }) => {
+    // 1. Verificar si el chat ya existe en memoria
+    let targetChat = chats.find(c => c.id === id);
+
+    // 2. Si NO existe (ej. resultado de búsqueda antiguo), creamos un placeholder
+    if (!targetChat && metadata) {
+        const placeholderChat: Chat = {
+            id: id,
+            title: metadata.title || 'Cargando chat...',
+            timestamp: metadata.timestamp || '...',
+            preview: 'Recuperando historial...',
+            messages: [],
+            messagesLoaded: false,
+            isAdminHistory: false,
+            hasMoreMessages: true,
+            isLoadingMore: true 
+        };
+        
+        // Lo inyectamos al inicio de la lista visualmente
+        setChats(prev => [placeholderChat, ...prev]);
+        targetChat = placeholderChat; 
+    }
+
+    // 3. Activar visualmente
+    setActiveChat(id);
+    
+    if (window.innerWidth < 768) {
+      setSidebarCollapsed(true);
+    }
+
+    // 4. Cargar los datos
+    if (messageId) {
+        // MODO BÚSQUEDA: Cargar contexto alrededor del mensaje
+        setLoadingMessages(true);
+        try {
+            // Aquí llamamos a la función corregida de arriba
+            await loadSessionMessages(id, { aroundId: messageId });
+            
+            // Hacemos el scroll visual
+            setTimeout(() => {
+                setScrollToMessageId(messageId);
+                setScrollRequestNonce((n) => n + 1);
+                setHighlightedMessageId(messageId);
+            }, 500); // Un poco más de tiempo para asegurar renderizado
+        } finally {
+            setLoadingMessages(false);
         }
-        prevStatusRef.current = null;
-        setIntegrationStatus(null);
-      }
-    };
-    fetchStatus();
-    const id = setInterval(fetchStatus, 600000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
+    } else {
+        // MODO NORMAL: Cargar últimos mensajes si está vacío
+        if (!targetChat?.messagesLoaded) {
+            await loadSessionMessages(id);
+        }
+    }
+    
+    setAnimatingMessageId(null);
+};
 
   const handleNewChat = () => {
     setActiveChat(null);
@@ -351,19 +342,29 @@ function ChatApp() {
     }
   };
 
+  // -------------------------------------------------------------------------
+  // 4. ENVÍO DE MENSAJES
+  // -------------------------------------------------------------------------
   const handleSendMessage = async (content: string, imageDataUrl?: string) => {
     if (!content.trim() && !imageDataUrl) return;
 
     try {
+      const currentSessionId = (activeChat && !activeChat.startsWith('admin-')) ? activeChat : undefined;
+
       const res = await fetch(`${API_BASE}/chat/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ content, imageDataUrl }),
+        body: JSON.stringify({ 
+            content, 
+            imageDataUrl,
+            sessionId: currentSessionId
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
         console.error('Error obteniendo respuesta del backend', data?.error || res.statusText);
+        toast.error('Error al enviar mensaje');
         return;
       }
 
@@ -386,11 +387,12 @@ function ChatApp() {
       };
 
       setAnimatingMessageId(assistantMsg.id);
+      const returnedSessionId = String(data.sessionId);
 
-      if (activeChat) {
+      if (currentSessionId) {
         setChats((prev) =>
           prev.map((chat) =>
-            chat.id === activeChat
+            chat.id === currentSessionId
               ? {
                   ...chat,
                   messages: [...chat.messages, userMsg, assistantMsg],
@@ -401,18 +403,17 @@ function ChatApp() {
           )
         );
       } else {
-        // Creamos un chat temporal localmente
-        // Al recargar la página, se traerá bien agrupado del backend
         const newChat: Chat = {
-          id: `chat-temp-${Date.now()}`,
+          id: returnedSessionId,
           title: (content || 'Nueva conversación').substring(0, 50),
           timestamp: 'Ahora',
           preview: (content || '[Imagen enviada]').substring(0, 50),
           messages: [userMsg, assistantMsg],
+          messagesLoaded: true,
+          hasMoreMessages: false 
         };
-        // Lo ponemos al principio
         setChats((prev) => [newChat, ...prev]);
-        setActiveChat(newChat.id);
+        setActiveChat(returnedSessionId);
       }
     } catch (err) {
       console.error('Fallo al contactar backend', err);
@@ -420,110 +421,28 @@ function ChatApp() {
     }
   };
 
-  const handleRetry = async () => {
-    if (!currentChat || currentChat.messages.length < 2) return;
-    const lastAssistantMessageIndex = currentChat.messages.length - 1;
-    const lastAssistantMessage = currentChat.messages[lastAssistantMessageIndex];
-    if (lastAssistantMessage.role !== 'assistant') return;
-
-    const lastUserMessage = [...currentChat.messages]
-      .reverse()
-      .find((msg) => msg.role === 'user');
-
-    if (!lastUserMessage) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/chat/respond`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ content: lastUserMessage.content }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        console.error('Error en reintento con backend', data?.error || res.statusText);
-        return;
-      }
-
-      const newContent: string = data.assistantMessage.content;
-      const newActions: SuggestedAction[] = data.assistantMessage.actions ?? [];
-      const newMetadata: Record<string, any> | null = data.assistantMessage.metadata ?? null;
-
-      setChats((prev) =>
-        prev.map((chat) =>
-          chat.id === activeChat
-            ? {
-                ...chat,
-                messages: chat.messages.map((msg, idx) =>
-                  idx === lastAssistantMessageIndex
-                    ? {
-                        ...msg,
-                        versions: msg.versions ? [...msg.versions, newContent] : [msg.content, newContent],
-                        currentVersion: msg.versions ? msg.versions.length : 1,
-                        content: newContent,
-                        actions: newActions,
-                        metadata: newMetadata,
-                        timestamp: Date.now(),
-                      }
-                    : msg
-                ),
-              }
-            : chat
-        )
-      );
-
-      retryNonceRef.current += 1;
-      setAnimatingMessageId(`${lastAssistantMessage.id}-${retryNonceRef.current}`);
-      setTimeout(() => {
-        setAnimatingMessageId(null);
-      }, newContent.length * 10 + 100);
-    } catch (err) {
-      console.error('Fallo en reintento', err);
-    }
-  };
-
-  const handleVersionChange = (messageId: string, direction: 'prev' | 'next') => {
-    if (!currentChat) return;
-    
-    setChats((prev) =>
-      prev.map((chat) =>
-        chat.id === activeChat
-          ? {
-              ...chat,
-              messages: chat.messages.map((msg) => {
-                if (msg.id === messageId && msg.versions) {
-                  const currentIdx = msg.currentVersion ?? 0;
-                  const newIdx = direction === 'next' 
-                    ? Math.min(currentIdx + 1, msg.versions.length - 1)
-                    : Math.max(currentIdx - 1, 0);
-                  
-                  return {
-                    ...msg,
-                    currentVersion: newIdx,
-                    content: msg.versions[newIdx],
-                  };
-                }
-                return msg;
-              }),
-            }
-          : chat
-      )
-    );
-  };
-
+  // -------------------------------------------------------------------------
+  // 5. ACCIONES ESPECÍFICAS
+  // -------------------------------------------------------------------------
+  
   const handleActionSelect = (payload: string) => {
     if (!payload.trim()) return;
     handleSendMessage(payload.trim());
   };
 
-  const handleSubmitAuth = async (collected: Record<string, any>) => {
+  const handleSubmitAuth = async (collected: Record<string, unknown>) => {
+    const currentChat = chats.find(c => c.id === activeChat);
     if (!currentChat) return;
+
     try {
       const res = await fetch(`${API_BASE}/chat/submitAuth`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ collected }),
+        body: JSON.stringify({ 
+            collected,
+            sessionId: currentChat.id 
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -559,7 +478,6 @@ function ChatApp() {
               : chat
           )
         );
-
         toast.success('Autorización enviada');
       } else {
         toast.error('Autorización fallida: ' + (data?.error || 'error desconocido'));
@@ -570,7 +488,8 @@ function ChatApp() {
     }
   };
 
-  const handleSubmitWan = async (collected: Record<string, any>) => {
+  const handleSubmitWan = async (collected: Record<string, unknown>) => {
+    const currentChat = chats.find(c => c.id === activeChat);
     if (!currentChat) return;
 
     try {
@@ -621,19 +540,340 @@ function ChatApp() {
     }
   };
 
-  const handleSelectChat = (id: string, messageId?: string) => {
-    setActiveChat(id);
-    if (messageId) {
-      setScrollToMessageId(messageId);
-      setScrollRequestNonce((n) => n + 1);
-      setHighlightedMessageId(messageId);
-    }
-    setAnimatingMessageId(null);
-    
-    if (window.innerWidth < 768) {
-      setSidebarCollapsed(true);
+  const handleRetry = async () => {
+    const currentChat = chats.find(c => c.id === activeChat);
+    if (!currentChat || currentChat.messages.length < 2) return;
+    const lastAssistantMessageIndex = currentChat.messages.length - 1;
+    const lastAssistantMessage = currentChat.messages[lastAssistantMessageIndex];
+    if (lastAssistantMessage.role !== 'assistant') return;
+
+    const lastUserMessage = [...currentChat.messages]
+      .reverse()
+      .find((msg) => msg.role === 'user');
+
+    if (!lastUserMessage) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/chat/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ 
+            content: lastUserMessage.content,
+            sessionId: currentChat.id
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { return; }
+
+      const newContent: string = data.assistantMessage.content;
+      const newActions: SuggestedAction[] = data.assistantMessage.actions ?? [];
+      const newMetadata: Record<string, unknown> | null = data.assistantMessage.metadata ?? null;
+
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.id === activeChat
+            ? {
+                ...chat,
+                messages: chat.messages.map((msg, idx) =>
+                  idx === lastAssistantMessageIndex
+                    ? {
+                        ...msg,
+                        versions: msg.versions ? [...msg.versions, newContent] : [msg.content, newContent],
+                        currentVersion: msg.versions ? msg.versions.length : 1,
+                        content: newContent,
+                        actions: newActions,
+                        metadata: newMetadata,
+                        timestamp: Date.now(),
+                      }
+                    : msg
+                ),
+              }
+            : chat
+        )
+      );
+
+      retryNonceRef.current += 1;
+      setAnimatingMessageId(`${lastAssistantMessage.id}-${retryNonceRef.current}`);
+      setTimeout(() => {
+        setAnimatingMessageId(null);
+      }, newContent.length * 10 + 100);
+    } catch (err) {
+      console.error('Fallo en reintento', err);
     }
   };
+
+  const handleVersionChange = (messageId: string, direction: 'prev' | 'next') => {
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat.id === activeChat
+          ? {
+              ...chat,
+              messages: chat.messages.map((msg) => {
+                if (msg.id === messageId && msg.versions) {
+                  const currentIdx = msg.currentVersion ?? 0;
+                  const newIdx = direction === 'next' 
+                    ? Math.min(currentIdx + 1, msg.versions.length - 1)
+                    : Math.max(currentIdx - 1, 0);
+                  
+                  return {
+                    ...msg,
+                    currentVersion: newIdx,
+                    content: msg.versions[newIdx],
+                  };
+                }
+                return msg;
+              }),
+            }
+          : chat
+      )
+    );
+  };
+
+  // -------------------------------------------------------------------------
+  // 6. ADMIN HISTORY LOGIC
+  // -------------------------------------------------------------------------
+  const openUserHistoryAsChat = useCallback(async (
+    userInfo: { id: number; email: string; name?: string },
+    options?: { focus?: boolean; closePanel?: boolean }
+  ) => {
+    const { focus = true, closePanel = true } = options ?? {};
+
+    if (!isAdmin) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userInfo.id}/messages`, {
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) return;
+
+      const history: AdminHistoryMessage[] = data.messages ?? [];
+      if (history.length === 0) return;
+
+      const sortedHistory = [...history].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+
+      const THRESHOLD_MS = 60 * 60 * 1000;
+      const groups: AdminHistoryMessage[][] = [];
+      let currentGroup: AdminHistoryMessage[] = [];
+
+      for (let i = 0; i < sortedHistory.length; i++) {
+        const msg = sortedHistory[i];
+        if (currentGroup.length === 0) {
+          currentGroup.push(msg);
+          continue;
+        }
+        const prev = currentGroup[currentGroup.length - 1];
+        const diff = new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime();
+        if (diff > THRESHOLD_MS) {
+          groups.push(currentGroup);
+          currentGroup = [msg];
+        } else {
+          currentGroup.push(msg);
+        }
+      }
+      if (currentGroup.length > 0) groups.push(currentGroup);
+
+      const newChats: Chat[] = groups.reverse().map((group, idx) => {
+        const historyMessages: Message[] = group.map((m) => ({
+          id: `admin-${userInfo.id}-${m.id}`,
+          role: m.role,
+          content: m.content,
+          imageDataUrl: m.imageUrl ?? undefined,
+          createdAt: m.createdAt,
+          actions: m.actions ?? undefined,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          metadata: (m as any).metadata ?? null,
+        }));
+
+        const latest = group[group.length - 1];
+        return {
+          id: `admin-history-${userInfo.id}-${idx + 1}`,
+          title: `Historial · ${userInfo.name ?? userInfo.email}`,
+          timestamp: latest ? new Date(latest.createdAt).toLocaleString() : 'Sin mensajes',
+          preview: latest ? latest.content.slice(0, 80) : 'Sin mensajes',
+          messages: historyMessages,
+          isAdminHistory: true,
+          ownerUserId: userInfo.id,
+          messagesLoaded: true
+        };
+      });
+
+      setChats((prev) => {
+        const withoutExisting = prev.filter(
+          (c) => !c.isAdminHistory || c.ownerUserId !== userInfo.id
+        );
+        return [...newChats, ...withoutExisting];
+      });
+
+      if (focus) {
+        const firstChatId = newChats[0]?.id;
+        if (firstChatId) {
+          setActiveChat(firstChatId);
+          setAnimatingMessageId(null);
+        }
+      }
+      if (closePanel) setShowAdminPanel(false);
+    } catch (error) {
+      console.error('Error al cargar historial admin', error);
+    }
+  }, [isAdmin]);
+
+  // Precarga Admin
+  useEffect(() => {
+    if (!isAdmin) return;
+    const preloadAllHistories = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/admin/users`, { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) return;
+        const users = (data.users ?? []) as { id: number; email: string; name?: string }[];
+        await Promise.all(users.map((u) => openUserHistoryAsChat(u, { focus: false, closePanel: false })));
+      } catch {
+        // Ignorar errores de precarga
+      }
+    };
+    void preloadAllHistories();
+  }, [isAdmin, openUserHistoryAsChat]);
+
+  // -------------------------------------------------------------------------
+  // 7. EFECTOS UI: SCROLL INFINITO Y AUTO-SCROLL
+  // -------------------------------------------------------------------------
+  
+  // IMPORTANTE: Unificamos el nombre a 'currentChat' para evitar el error TS2304
+  const currentChat = chats.find((chat) => chat.id === activeChat);
+
+  // Observer para Scroll Infinito hacia arriba
+  useEffect(() => {
+    const chat = currentChat;
+    if (!chat || !chat.hasMoreMessages || chat.isLoadingMore || chat.isAdminHistory) return;
+
+    const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+            // Usuario llegó arriba: cargar mensajes anteriores
+            const oldestMessage = chat.messages[0];
+            if (oldestMessage) {
+                const oldestId = oldestMessage.id.replace('msg-', ''); // ID limpio para backend
+                
+                // Guardar altura actual antes de cargar para restaurar posición visual
+                if (scrollViewportRef.current) {
+                    const scrollContainer = scrollViewportRef.current.querySelector('[data-radix-scroll-area-viewport]');
+                    if (scrollContainer) {
+                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                         (scrollContainer as any)._savedScrollHeight = scrollContainer.scrollHeight;
+                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                         (scrollContainer as any)._savedScrollTop = scrollContainer.scrollTop;
+                    }
+                }
+
+                loadSessionMessages(chat.id, { beforeId: oldestId });
+            }
+        }
+    }, { threshold: 0.1, rootMargin: '100px 0px 0px 0px' }); 
+
+    if (topSentinelRef.current) observer.observe(topSentinelRef.current);
+    return () => observer.disconnect();
+  }, [activeChat, currentChat, currentChat?.messages.length, currentChat?.isLoadingMore, loadSessionMessages]);
+
+  // Restaurar scroll después de cargar historial antiguo
+  useLayoutEffect(() => {
+     if (scrollViewportRef.current && currentChat?.messages.length) {
+         const scrollContainer = scrollViewportRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         if (scrollContainer && (scrollContainer as any)._savedScrollHeight) {
+             const newHeight = scrollContainer.scrollHeight;
+             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             const oldHeight = (scrollContainer as any)._savedScrollHeight;
+             const diff = newHeight - oldHeight;
+             
+             // Ajustar scroll para que el usuario se quede visualmente "en el mismo mensaje"
+             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             scrollContainer.scrollTop = diff + ((scrollContainer as any)._savedScrollTop || 0);
+             
+             // Limpiar variables temporales
+             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             delete (scrollContainer as any)._savedScrollHeight;
+             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             delete (scrollContainer as any)._savedScrollTop;
+         }
+     }
+  }, [currentChat?.messages]);
+
+  useEffect(() => {
+    const checkMobile = () => setSidebarCollapsed(window.innerWidth < 768);
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Auto-scroll al fondo SOLO si NO estamos cargando historial antiguo
+  useEffect(() => {
+    if (!currentChat?.isLoadingMore) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [currentChat?.messages.length, activeChat, currentChat?.isLoadingMore]);
+
+  // Scroll a mensaje específico (Búsqueda)
+  useEffect(() => {
+    if (!scrollToMessageId) return;
+    const el = document.querySelector<HTMLElement>(`[data-message-id="${scrollToMessageId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(scrollToMessageId);
+      setTimeout(() => setHighlightedMessageId(null), 2500);
+    }
+  }, [scrollRequestNonce, scrollToMessageId]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Polling Integration Status
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/integrations/status`, { credentials: 'include' });
+        const data = (await res.json()) as IntegrationStatus;
+        if (cancelled) return;
+
+        const prev = prevStatusRef.current;
+        setIntegrationStatus(data);
+
+        const transitions: Array<{ key: 'WispHub' | 'SmartOLT'; from?: boolean; to?: boolean }> = [];
+        if (prev) {
+          if (prev.wisphub.ok !== data.wisphub.ok) transitions.push({ key: 'WispHub', from: prev.wisphub.ok, to: data.wisphub.ok });
+          if (prev.smartolt.ok !== data.smartolt.ok) transitions.push({ key: 'SmartOLT', from: prev.smartolt.ok, to: data.smartolt.ok });
+        }
+        prevStatusRef.current = data;
+
+        for (const t of transitions) {
+          if (t.to) toast.success(`${t.key} conectado`, { description: `Estado: OK` });
+          else toast.error(`${t.key} desconectado`, { description: `El servicio no responde` });
+        }
+      } catch {
+        const prev = prevStatusRef.current;
+        if (prev && (prev.wisphub.ok || prev.smartolt.ok)) toast.error('Integraciones no disponibles');
+        prevStatusRef.current = null;
+        setIntegrationStatus(null);
+      }
+    };
+    fetchStatus();
+    const id = setInterval(fetchStatus, 600000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // RENDER
+  // -------------------------------------------------------------------------
 
   function StatusDot({ label, ok }: { label: string; ok: boolean }) {
     return (
@@ -646,40 +886,40 @@ function ChatApp() {
 
   return (
     <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
-      <SearchModal
-        isOpen={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        chats={chats}
-        onSelectChat={handleSelectChat}
-      />
+<SearchModal
+  key={searchOpen ? "open" : "closed"} // <--- ESTO RESETEA EL ESTADO AUTOMÁTICAMENTE
+  isOpen={searchOpen}
+  onClose={() => setSearchOpen(false)}
+  onSelectChat={handleSelectChat}
+  chats={chats}
+  isAdmin={isAdmin}
+/>
 
       <ChatSidebar
         chats={chats}
         activeChat={activeChat}
         sidebarCollapsed={sidebarCollapsed}
-        onSelectChat={handleSelectChat}
+        onSelectChat={(id) => handleSelectChat(id)}
         onNewChat={handleNewChat}
         onDeleteChat={handleDeleteChat}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenAdmin={() => setShowAdminPanel(true)}
-        onOpenProfile={() => {
-          if (!isAdmin) setShowUserPanel(true);
-        }}
+        onOpenProfile={() => { if (!isAdmin) setShowUserPanel(true); }}
       />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
         {showAdminPanel && (
           <AdminUserPanel 
             onClose={() => setShowAdminPanel(false)}
+            // @ts-expect-error: Propiedad onOpenUserHistory aún no definida en AdminUserPanel
             onOpenUserHistory={openUserHistoryAsChat}
           />
         )}
         {showUserPanel && !isAdmin && (
-          <UserAccountPanel
-            onClose={() => setShowUserPanel(false)}
-          />
+          <UserAccountPanel onClose={() => setShowUserPanel(false)} />
         )}
+        
         {/* Header */}
         <header className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-neutral-800/50 bg-neutral-950/80 backdrop-blur-xl">
           <div className="flex items-center gap-3">
@@ -696,7 +936,9 @@ function ChatApp() {
                 {currentChat ? currentChat.title : 'Nuevo chat'}
               </h2>
               <p className="text-xs text-neutral-500">
-                {currentChat ? currentChat.timestamp : 'Comienza una conversación con el asistente de SmartOLT'}
+                {currentChat 
+                   ? (loadingMessages ? 'Cargando historial...' : currentChat.timestamp)
+                   : 'Comienza una conversación con el asistente de SmartOLT'}
               </p>
             </div>
           </div>
@@ -720,51 +962,65 @@ function ChatApp() {
           </div>
         </header>
 
-        {/* Messages */}
+        {/* Messages Area */}
         {currentChat ? (
-          <ScrollArea className="flex-1 overflow-y-auto bg-neutral-950">
-            <div className="pb-4">
-              {currentChat.messages.map((message, index) => {
-                const animationKey = message.id === animatingMessageId || 
-                  animatingMessageId?.startsWith(message.id + '-');
-                const prevMsg = currentChat.messages[index - 1];
-                const currDate = message.createdAt ? new Date(message.createdAt) : null;
-                const prevDate = prevMsg?.createdAt ? new Date(prevMsg.createdAt) : null;
-                const showDateSeparator = currDate && (!prevDate || currDate.toDateString() !== prevDate.toDateString());
+          <ScrollArea className="flex-1 overflow-y-auto bg-neutral-950" ref={scrollViewportRef}>
+            {loadingMessages ? (
+              <div className="flex h-full items-center justify-center">
+                 <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+              </div>
+            ) : (
+              <div className="pb-4 min-h-full flex flex-col justify-end">
                 
-                return (
-                  <div key={message.id} data-message-id={message.id}>
-                    {showDateSeparator && (
-                      <div className="flex justify-center my-2">
-                        <div className="px-3 py-1 text-[11px] text-neutral-400 bg-neutral-900/60 border border-neutral-800/60 rounded-full">
-                          {currDate?.toLocaleDateString()}
+                {/* Spinner de carga de historial antiguo */}
+                {currentChat.hasMoreMessages && !currentChat.isAdminHistory && (
+                    <div ref={topSentinelRef} className="h-10 flex w-full justify-center items-center py-2 shrink-0">
+                        {currentChat.isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-neutral-500" />}
+                    </div>
+                )}
+
+                {currentChat.messages.map((message, index) => {
+                  const animationKey = message.id === animatingMessageId || 
+                    animatingMessageId?.startsWith(message.id + '-');
+                  const prevMsg = currentChat.messages[index - 1];
+                  const currDate = message.createdAt ? new Date(message.createdAt) : null;
+                  const prevDate = prevMsg?.createdAt ? new Date(prevMsg.createdAt) : null;
+                  const showDateSeparator = currDate && (!prevDate || currDate.toDateString() !== prevDate.toDateString());
+                  
+                  return (
+                    <div key={message.id} data-message-id={message.id}>
+                      {showDateSeparator && (
+                        <div className="flex justify-center my-2">
+                          <div className="px-3 py-1 text-[11px] text-neutral-400 bg-neutral-900/60 border border-neutral-800/60 rounded-full">
+                            {currDate?.toLocaleDateString()}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    <ChatMessage 
-                      role={message.role} 
-                      content={message.content}
-                      imageDataUrl={message.imageDataUrl}
-                      isLatest={index === currentChat.messages.length - 1 && message.role === 'assistant'}
-                      onRetry={handleRetry}
-                      shouldAnimate={animationKey}
-                      messageId={message.id}
-                      versions={message.versions}
-                      currentVersion={message.currentVersion}
-                      onVersionChange={handleVersionChange}
-                      actions={message.actions}
-                      onActionSelect={handleActionSelect}
-                      onSubmitAuth={handleSubmitAuth}
-                      onSubmitWan={handleSubmitWan}
-                      createdAt={message.createdAt}
-                      metadata={message.metadata}
-                      highlighted={message.id === highlightedMessageId}
-                    />
-                  </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
+                      )}
+                      <ChatMessage 
+                        role={message.role} 
+                        content={message.content}
+                        imageDataUrl={message.imageDataUrl}
+                        isLatest={index === currentChat.messages.length - 1 && message.role === 'assistant'}
+                        onRetry={handleRetry}
+                        shouldAnimate={animationKey}
+                        messageId={message.id}
+                        versions={message.versions}
+                        currentVersion={message.currentVersion}
+                        onVersionChange={handleVersionChange}
+                        actions={message.actions}
+                        onActionSelect={handleActionSelect}
+                        onSubmitAuth={handleSubmitAuth}
+                        onSubmitWan={handleSubmitWan}
+                        createdAt={message.createdAt}
+                        metadata={message.metadata}
+                        highlighted={message.id === highlightedMessageId}
+                      />
+                    </div>
+                  );
+                })}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
           </ScrollArea>
         ) : (
           <div className="flex-1 overflow-y-auto bg-neutral-950">

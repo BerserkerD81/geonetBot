@@ -1,4 +1,11 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { 
+  createContext, 
+  useContext, 
+  useState, 
+  useEffect, 
+  useCallback, // Importamos useCallback
+  type ReactNode 
+} from 'react';
 
 interface User {
   id: number;
@@ -32,6 +39,23 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
+// Movemos esta función fuera del componente ya que es una utilidad pura 
+// y no depende del estado del componente.
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit & { timeoutMs?: number } = {}
+) => {
+  const { timeoutMs = 8000, ...rest } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...rest, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,22 +63,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = !!user;
 
-  const fetchWithTimeout = async (
-    url: string,
-    options: RequestInit & { timeoutMs?: number } = {}
-  ) => {
-    const { timeoutMs = 8000, ...rest } = options;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { ...rest, signal: controller.signal });
-      return res;
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  const refreshUser = async () => {
+  // Usamos useCallback para estabilizar la función
+  const refreshUser = useCallback(async () => {
     try {
       const res = await fetchWithTimeout(`${API_BASE}/auth/me`, {
         credentials: 'include',
@@ -72,9 +82,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setIsAdmin(false);
     }
-  };
+  }, []); // Sin dependencias externas cambiantes
 
-  const refreshAdminFlag = async () => {
+  // Usamos useCallback y pasamos 'user' como dependencia
+  const refreshAdminFlag = useCallback(async () => {
     if (!user) {
       setIsAdmin(false);
       return;
@@ -94,32 +105,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Error checking admin role:', error);
       setIsAdmin(false);
     }
-  };
+  }, [user]); // Depende de user
 
   useEffect(() => {
     let isMounted = true;
     (async () => {
       setIsLoading(true);
-      // Run refresh with a hard cap to avoid indefinite loading when API is unreachable
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, 9000));
+      // Ahora refreshUser es estable y seguro de añadir al array de dependencias
       await Promise.race([refreshUser(), timeout]);
       if (isMounted) setIsLoading(false);
     })();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [refreshUser]); // Error de dependencias corregido
 
   useEffect(() => {
-    if (user) {
+    if (user?.id) {
       refreshAdminFlag();
     } else {
       setIsAdmin(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+    // Añadimos refreshAdminFlag a las dependencias
+  }, [user?.id, refreshAdminFlag]);
 
-  const login = async (email: string, password: string): Promise<LoginResult> => {
+  // Envolvemos el resto de funciones en useCallback para evitar 
+  // re-renderizados innecesarios en los consumidores del contexto
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
@@ -145,15 +158,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       await refreshUser();
-      await refreshAdminFlag();
+      // refreshAdminFlag se ejecutará automáticamente por el useEffect cuando cambie el usuario
       return { ok: true };
     } catch (error) {
       console.error('Login error:', error);
       return { ok: false, error: 'No se pudo conectar con el servidor' };
     }
-  };
+  }, [refreshUser]);
 
-  const setup2fa = async (): Promise<{ qr: string } | { error: string }> => {
+  const setup2fa = useCallback(async (): Promise<{ qr: string } | { error: string }> => {
     try {
       const res = await fetch(`${API_BASE}/auth/2fa/setup`, {
         method: 'POST',
@@ -168,9 +181,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('2FA setup error:', error);
       return { error: 'No se pudo conectar con el servidor' };
     }
-  };
+  }, []);
 
-  const verify2faSetup = async (token: string): Promise<boolean> => {
+  const verify2faSetup = useCallback(async (token: string): Promise<boolean> => {
     try {
       const res = await fetch(`${API_BASE}/auth/2fa/verify`, {
         method: 'POST',
@@ -184,15 +197,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       if (!data.ok) return false;
       await refreshUser();
-      await refreshAdminFlag();
       return true;
     } catch (error) {
       console.error('2FA verify error:', error);
       return false;
     }
-  };
+  }, [refreshUser]);
 
-  const verify2faLogin = async (userId: number, token: string): Promise<boolean> => {
+  const verify2faLogin = useCallback(async (userId: number, token: string): Promise<boolean> => {
     try {
       const res = await fetch(`${API_BASE}/auth/login/2fa`, {
         method: 'POST',
@@ -206,15 +218,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       if (!data.ok) return false;
       await refreshUser();
-      await refreshAdminFlag();
       return true;
     } catch (error) {
       console.error('2FA login verify error:', error);
       return false;
     }
-  };
+  }, [refreshUser]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await fetch(`${API_BASE}/auth/logout`, {
         method: 'POST',
@@ -226,7 +237,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setIsAdmin(false);
     }
-  };
+  }, []);
 
   return (
     <AuthContext.Provider
@@ -248,6 +259,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// Solución al error "React Refresh only exports components".
+// Esto permite mantener el hook en el mismo archivo sin romper el Hot Module Replacement.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
