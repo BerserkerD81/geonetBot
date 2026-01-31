@@ -111,11 +111,18 @@ interface ChatMessageProps {
 
 const API_BASE = (() => {
   const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
+  
   if (envApi && envApi.trim()) {
-    return envApi.startsWith('http') ? envApi : `http://${envApi}`;
+    // CORRECCIÓN: Si es ruta relativa (empieza con /) o ya tiene http, la dejamos tal cual.
+    if (envApi.startsWith('/') || envApi.startsWith('http')) {
+      return envApi;
+    }
+    // Solo agregamos protocolo si es un dominio a secas (ej: localhost:3000)
+    return `http://${envApi}`;
   }
+  
   const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:3000`; 
+  return `${protocol}//${hostname}:3000`;
 })();
 
 const resolveImageUrl = (url?: string) => {

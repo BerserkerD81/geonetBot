@@ -67,17 +67,23 @@ type AdminHistoryMessage = {
   metadata?: Record<string, unknown> | null;
 };
 
-// --- CONFIGURACIÓN API ---
+// --- CONFIGURACIÓN API CORREGIDA ---
 
 const API_BASE = (() => {
   const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
+  
   if (envApi && envApi.trim()) {
-    return envApi.startsWith('http') ? envApi : `http://${envApi}`;
+    // CORRECCIÓN: Si empieza con "/" (ruta relativa) o "http", úsala tal cual.
+    if (envApi.startsWith('/') || envApi.startsWith('http')) {
+      return envApi;
+    }
+    // Solo agrega protocolo si es un dominio a secas (ej: "localhost:3000")
+    return `http://${envApi}`;
   }
+  
   const { protocol, hostname } = window.location;
   return `${protocol}//${hostname}:3000`;
 })();
-
 // --- COMPONENTE PRINCIPAL ---
 
 function ChatApp() {
@@ -187,9 +193,11 @@ const loadSessionMessages = useCallback(async (sessionId: string, options?: { ar
     setChats(prev => prev.map(c => c.id === sessionId ? { ...c, isLoadingMore: true } : c));
 
     try {
-      // 4. Construcción de URL
-      const url = new URL(`${API_BASE}/chat/sessions/${sessionId}/messages`);
-      url.searchParams.append('limit', '20');
+      // Al agregar el segundo parámetro, new URL acepta rutas relativas
+const url = new URL(
+  `${API_BASE}/chat/sessions/${sessionId}/messages`, 
+  window.location.origin
+);
 
       if (aroundId) {
         // SOLUCIÓN AL ERROR: Convertimos a String explícitamente antes de replace
