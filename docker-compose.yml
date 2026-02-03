@@ -11,6 +11,13 @@ services:
     networks:
       - geonet_network
     command: npm run dev -- --host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5173/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   prod:
     build:
@@ -24,7 +31,13 @@ services:
       - "8080:80"
     networks:
       - geonet_network
-
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 volumes:
   node_modules:
 

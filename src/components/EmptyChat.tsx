@@ -1,4 +1,4 @@
-import { Bot, Activity } from 'lucide-react';
+import { Bot, Activity ,ImageIcon} from 'lucide-react';
 
 interface EmptyChatProps {
   onSelectQuery?: (query: string) => void;
@@ -11,6 +11,12 @@ export function EmptyChat({ onSelectQuery }: EmptyChatProps) {
       title: 'Instalaciones pendientes de autorizar',
       query: 'Enséñame las instalaciones pendientes de evidencia para autorizar el alta',
       description: 'Controla las órdenes donde aún faltan fotos o datos'
+    },
+    {
+      icon: ImageIcon,
+      title: 'Agregar fotos a clientes',
+      query: 'quiero agregar fotos de instalaicion',
+      description: 'Carga evidencias para un cliente específico'
     },
   ];
 

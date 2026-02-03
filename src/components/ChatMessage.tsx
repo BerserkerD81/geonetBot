@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { 
-  Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
+  Bot, Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
   Copy, RotateCcw, MapPin, Maximize2, Download, Eye, EyeOff, X, ImageOff, Loader2,
   Server, HardDrive, Network, Lock, Settings2, CheckCircle2, Circle
 } from 'lucide-react';
@@ -12,7 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { useAuth } from '../contexts/AuthContext';
 
 // --- CONSTANTES DE CONFIGURACIÓN DEL FORMULARIO ---
-const HIDDEN_FIELDS = ['auth-olt_id', 'auth-pon_type', 'auth-board', 'auth-onu_mode'];
+const HIDDEN_FIELDS = ['auth-olt_id', 'auth-pon_type', 'auth-board', 'auth-onu_mode', 'auth-port'];
 const READ_ONLY_FIELDS = ['auth-name', 'auth-sn'];
 const AUTO_SELECT_FIELDS = ['auth-onu_type', 'auth-vlan', 'auth-zone'];
 
@@ -144,7 +144,7 @@ const normalizeSpeedProfile = (val: string) => {
   return `${num}M`;
 };
 
-const parseMarkdownTableToInstallations = (content: string, actions?: ActionOption[]): InstallationEntry[] => {
+const parseMarkdownTableToInstallations = (content: string, actions?: ActionOption[], preferClientSelect: boolean = false): InstallationEntry[] => {
   try {
     const lines = content.split('\n').map(l => l.trim()).filter(l => l.startsWith('|'));
     if (lines.length < 3) return [];
@@ -169,12 +169,16 @@ const parseMarkdownTableToInstallations = (content: string, actions?: ActionOpti
                (a.payload && a.payload.includes(`instalación ${installId}`))
         );
 
+        const actionPayload = preferClientSelect
+          ? `seleccionar cliente ${installId}`
+          : (relatedAction?.payload || `seleccionar instalación ${installId}`);
+
         parsed.push({
           id: installId,
           clientName,
           rut,
           address,
-          actionPayload: relatedAction?.payload || `seleccionar instalación ${installId}`
+          actionPayload
         });
       }
     });
@@ -486,13 +490,17 @@ export function ChatMessage({
   const smartoltAvailability = (metadata?.smartoltAvailability as SmartoltAvailability | undefined) || null;
   const hasSmartoltTable = Boolean(smartoltAvailability?.olts?.length);
   
+  const hasClientSelectActions = useMemo(() => {
+    return (actions || []).some(a => (a?.payload || '').toLowerCase().includes('seleccionar cliente'));
+  }, [actions]);
+
   const installations: InstallationEntry[] = useMemo(() => {
     if (metadata?.installations && metadata.installations.length > 0) return metadata.installations;
     if (!isUser && content.includes('|') && content.toLowerCase().includes('cliente')) {
-      return parseMarkdownTableToInstallations(content, actions);
+      return parseMarkdownTableToInstallations(content, actions, hasClientSelectActions);
     }
     return [];
-  }, [metadata, content, isUser, actions]);
+  }, [metadata, content, isUser, actions, hasClientSelectActions]);
   
   const hasInstallationsTable = Boolean(installations.length);
 
@@ -567,7 +575,7 @@ export function ChatMessage({
     const externalId = odbNameToExternalId[odbNameOrId] || odbNameOrId;
     if (!externalId) return;
     try {
-      const res = await fetch(`${API_BASE}/api/odbs/${encodeURIComponent(externalId)}/ports`, { credentials: 'include', cache: 'no-store' });
+      const res = await fetch(`${API_BASE}/odb/odbs/${encodeURIComponent(externalId)}/ports`, { credentials: 'include', cache: 'no-store' });
       const data = await res.json();
       if (Array.isArray(data?.ports)) {
         const portOptions = data.ports.map((p: PortApiResponseItem) => 
@@ -596,8 +604,21 @@ export function ChatMessage({
   };
 
   const resolvePayload = (actionPayload?: string, value?: string) => {
-    if (actionPayload && value) return actionPayload.replace('{input}', value);
-    return actionPayload || value || '';
+    let payload = actionPayload || value || '';
+    if (!payload) return '';
+
+    if (payload.includes('{input}') && value) {
+      payload = payload.replace('{input}', value);
+    }
+
+    if (payload.includes('{')) {
+      Object.entries(inputValues).forEach(([key, val]) => {
+        if (!key) return;
+        payload = payload.replace(new RegExp(`\\{${key}\\}`, 'g'), String(val ?? ''));
+      });
+    }
+
+    return payload;
   };
 
   const handleOnuSelect = (onu: OnuEntry, olt: OltEntry) => {
@@ -643,11 +664,13 @@ export function ChatMessage({
     const isSelection = a.id.startsWith('select') || (a.payload || '').toLowerCase().includes('seleccionar');
     if (!isSelection) return false;
     if (hasInstallationsTable && (a.id.startsWith('select-installation-') || installations.some(i => i.actionPayload === a.payload))) return false;
+    if (hasInstallationsTable && hasClientSelectActions && ((a.payload || '').toLowerCase().includes('seleccionar cliente') || a.id.startsWith('select-client-'))) return false;
     return true;
   });
 
   const selectionIds = new Set(selectionButtonsToRender.map(a => a.id));
-  const otherButtons = buttonActions.filter(a => a.id !== submitAction?.id && !selectionIds.has(a.id) && !a.id.startsWith('select-installation-'));
+  const otherButtons = buttonActions.filter(a => a.id !== submitAction?.id && !selectionIds.has(a.id) && !a.id.startsWith('select-installation-'))
+    .filter(a => !(hasInstallationsTable && hasClientSelectActions && (a.id.startsWith('select-client-') || (a.payload || '').toLowerCase().includes('seleccionar cliente'))));
   
 const handleBulkSubmit = async () => {
     // 1. Identificar el tipo de acción
@@ -791,11 +814,11 @@ const handleBulkSubmit = async () => {
   const currentIdx = currentVersion ?? 0;
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/40' : ''} px-2 py-2`}>
-      <div className="w-full max-w-4xl flex gap-3 items-start">
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/40' : ''} px-2 sm:px-3 py-2`}>
+      <div className="w-full max-w-4xl flex gap-2 sm:gap-3 items-start">
         {!isUser && (
-          <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400">
-            <span className="text-xs font-bold">AI</span>
+          <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400" aria-label="Bot">
+            <Bot className="size-4" />
           </div>
         )}
         
@@ -803,7 +826,7 @@ const handleBulkSubmit = async () => {
           {isUser ? (
             <div className="flex flex-col items-end">
               <div className="text-xs text-neutral-500 mb-1.5 mr-1 font-medium">{authUser?.username || 'Tú'}</div>
-              <div className="inline-block max-w-[95%] sm:max-w-[85%] bg-neutral-800 text-neutral-50 px-4 py-2.5 rounded-2xl border border-neutral-700/60 text-[15px] whitespace-pre-wrap shadow-sm">
+              <div className="inline-block max-w-[98%] sm:max-w-[85%] bg-neutral-800 text-neutral-50 px-3.5 sm:px-4 py-2.5 rounded-2xl border border-neutral-700/60 text-[15px] whitespace-pre-wrap shadow-sm">
                 {displayedContent}
                 
                 {imageDataUrl && (
@@ -842,49 +865,51 @@ const handleBulkSubmit = async () => {
 
               {/* --- TABLA INSTALACIONES (RESPONSIVE) --- */}
               {hasInstallationsTable && (
-                <div className="mt-4 space-y-3 w-[90%] mx-auto md:w-full md:mx-0">
-                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
-                    <span className="h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_3px_rgba(99,102,241,0.15)]" />
-                    Instalaciones Pendientes
-                  </div>
-                  <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden">
-                    <div className="hidden md:grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
-                      <div className="col-span-1">ID</div>
-                      <div className="col-span-4">Cliente</div>
-                      <div className="col-span-5">Dirección</div>
-                      <div className="col-span-2 text-right">Acción</div>
+                <div className="mt-4 w-full flex flex-col items-start md:items-stretch px-1 sm:px-0">
+                  <div className="w-full md:max-w-none space-y-3">
+                    <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
+                      <span className="h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_3px_rgba(99,102,241,0.15)]" />
+                      {hasClientSelectActions ? 'Clientes encontrados' : 'Instalaciones Pendientes'}
                     </div>
-                    
-                    <div className="divide-y divide-neutral-800/60">
-                      {installations.map((inst) => (
-                        <div key={inst.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center px-4 py-4 md:py-3 gap-3 md:gap-2 text-sm text-neutral-100 hover:bg-neutral-800/40 transition-colors">
-                          <div className="flex justify-between items-center md:hidden pb-2 border-b border-neutral-800/50">
-                             <span className="text-xs font-mono text-neutral-500">#{inst.id}</span>
-                             <span className="text-[10px] text-neutral-500 uppercase font-medium">Instalación</span>
-                          </div>
-                          <div className="md:col-span-1 font-mono text-xs text-neutral-500 hidden md:block">{inst.id}</div>
-                          <div className="md:col-span-4 font-medium flex flex-col">
-                            <span className="md:hidden text-[10px] text-neutral-500 uppercase mb-0.5">Cliente</span>
-                            <span title={inst.clientName} className="break-words">{inst.clientName}</span>
-                          </div>
-                          <div className="md:col-span-5 text-xs text-neutral-400 flex flex-col md:flex-row md:items-center gap-1.5">
-                            <span className="md:hidden text-[10px] text-neutral-500 uppercase mt-2 mb-0.5">Dirección</span>
-                            <div className="flex items-start gap-1.5">
-                              <MapPin className="size-3.5 shrink-0 mt-0.5 md:mt-0" /> 
-                              <span className="break-words">{inst.address}</span>
+                    <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden shadow-sm">
+                      <div className="hidden md:grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
+                        <div className="col-span-1">ID</div>
+                        <div className="col-span-4">Cliente</div>
+                        <div className="col-span-5">Dirección</div>
+                        <div className="col-span-2 text-right">Acción</div>
+                      </div>
+                      
+                      <div className="divide-y divide-neutral-800/60">
+                        {installations.map((inst) => (
+                          <div key={inst.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center px-3 sm:px-4 py-4 md:py-3 gap-3 md:gap-2 text-sm text-neutral-100 hover:bg-neutral-800/40 transition-colors">
+                            <div className="flex justify-between items-center md:hidden pb-2 border-b border-neutral-800/50">
+                               <span className="text-xs font-mono text-neutral-500">#{inst.id}</span>
+                               <span className="text-[10px] text-neutral-500 uppercase font-medium">Instalación</span>
+                            </div>
+                            <div className="md:col-span-1 font-mono text-xs text-neutral-500 hidden md:block">{inst.id}</div>
+                            <div className="md:col-span-4 font-medium flex flex-col">
+                              <span className="md:hidden text-[10px] text-neutral-500 uppercase mb-0.5">Cliente</span>
+                              <span title={inst.clientName} className="break-words">{inst.clientName}</span>
+                            </div>
+                            <div className="md:col-span-5 text-xs text-neutral-400 flex flex-col md:flex-row md:items-center gap-1.5">
+                              <span className="md:hidden text-[10px] text-neutral-500 uppercase mt-2 mb-0.5">Dirección</span>
+                              <div className="flex items-start gap-1.5">
+                                <MapPin className="size-3.5 shrink-0 mt-0.5 md:mt-0" /> 
+                                <span className="break-words">{inst.address}</span>
+                              </div>
+                            </div>
+                            <div className="md:col-span-2 md:text-right mt-2 md:mt-0">
+                              <Button 
+                                size="sm" 
+                                onClick={() => inst.actionPayload && onActionSelect?.(inst.actionPayload)} 
+                                className="w-full md:w-auto h-9 md:h-7 text-xs font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-lg"
+                              >
+                                {(inst.actionPayload || '').toLowerCase().includes('seleccionar cliente') ? 'Seleccionar' : 'Autorizar'}
+                              </Button>
                             </div>
                           </div>
-                          <div className="md:col-span-2 md:text-right mt-2 md:mt-0">
-                            <Button 
-                              size="sm" 
-                              onClick={() => inst.actionPayload && onActionSelect?.(inst.actionPayload)} 
-                              className="w-full md:w-auto h-9 md:h-7 text-xs font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-lg"
-                            >
-                              Autorizar
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -892,188 +917,196 @@ const handleBulkSubmit = async () => {
 
               {/* --- TABLA SMARTOLT (RESPONSIVE) --- */}
               {hasSmartoltTable && (
-                <div className="mt-4 space-y-4 w-[90%] mx-auto md:w-full md:mx-0">
-                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> Disponibilidad SmartOLT
-                  </div>
-                  {smartoltAvailability?.olts?.map((olt) => (
-                    <div key={olt.oltId} className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 shadow-sm">
-                       <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
-                        <div className="flex items-center gap-2">
-                           <Server className="size-4 text-emerald-600"/>
-                           <div className="text-sm font-bold text-emerald-500 uppercase tracking-wider">
-                             {olt.oltName || 'OLT'}
-                           </div>
-                        </div>
-                        <span className="text-[10px] bg-neutral-800 text-neutral-400 px-2.5 py-1 rounded-full border border-neutral-700/50">
-                          {olt.onus.length} ONUs
-                        </span>
-                      </div>
-                      <div className="overflow-hidden rounded-lg border border-neutral-800/70 bg-black/20">
-                        <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 bg-neutral-800/50 text-[11px] font-bold text-neutral-500 uppercase">
-                          <div className="col-span-2">SN / Label</div>
-                          <div className="col-span-1">Tipo</div>
-                          <div className="col-span-2 text-center">Board/Port/Pon</div>
-                          <div className="col-span-4">Descripción</div>
-                          <div className="col-span-2 text-center">Modelo</div>
-                          <div className="col-span-1 text-right">Acción</div>
-                        </div>
-                        <div className="divide-y divide-neutral-800">
-                          {olt.onus.map((onu) => (
-                            <div key={onu.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-2 px-4 py-4 md:py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
-                               <div className="col-span-12 md:col-span-2 flex flex-row md:flex-col justify-between items-start md:justify-center">
-                                <div className="flex flex-col">
-                                    <span className="font-medium text-neutral-200 truncate">{onu.label}</span>
-                                    <span className="text-[11px] font-mono text-neutral-500 uppercase bg-neutral-900/50 px-1 rounded w-fit mt-0.5">{onu.sn || 'Sin SN'}</span>
-                                </div>
-                                <span className="md:hidden px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
-                                  {onu.ponType || 'GPON'}
-                                </span>
-                              </div>
-                              <div className="hidden md:block col-span-4 md:col-span-1">
-                                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
-                                  {onu.ponType || 'GPON'}
-                                </span>
-                              </div>
-                              <div className="col-span-4 md:col-span-2 flex items-center md:justify-center gap-2 text-neutral-300">
-                                <Network className="size-3.5 md:hidden text-neutral-500" />
-                                <span className="md:hidden text-neutral-500 text-xs">Puerto:</span>
-                                <span className="font-mono bg-neutral-800/40 px-1.5 py-0.5 rounded">{onu.board}/{onu.port}/{onu.ponPort}</span>
-                              </div>
-                              <div className="col-span-12 md:col-span-4 text-xs text-neutral-400 italic truncate flex items-center gap-2">
-                                <span className="md:hidden not-italic font-semibold text-neutral-500">Desc:</span>
-                                {onu.description || 'Sin descripción'}
-                              </div>
-                              <div className="col-span-4 md:col-span-2 md:text-center text-neutral-400 flex items-center md:justify-center gap-2">
-                                <HardDrive className="size-3.5 md:hidden text-neutral-500" />
-                                <span className="md:hidden text-neutral-500 text-xs">Modelo:</span>
-                                {onu.type || onu.model || 'N/A'}
-                              </div>
-                              <div className="col-span-12 md:col-span-1 text-right mt-1 md:mt-0">
-                                <Button 
-                                  size="sm" 
-                                  onClick={() => handleOnuSelect(onu, olt)} 
-                                  className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20 rounded-lg active:scale-95 transition-transform"
-                                >
-                                  Usar
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                <div className="mt-4 w-full flex flex-col items-start md:items-stretch px-1 sm:px-0">
+                  <div className="w-full md:max-w-none space-y-4">
+                     <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" /> Disponibilidad SmartOLT
                     </div>
-                  ))}
+                    {smartoltAvailability?.olts?.map((olt) => (
+                      <div key={olt.oltId} className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 shadow-sm">
+                         <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+                          <div className="flex items-center gap-2">
+                             <Server className="size-4 text-emerald-600"/>
+                             <div className="text-sm font-bold text-emerald-500 uppercase tracking-wider">
+                               {olt.oltName || 'OLT'}
+                             </div>
+                          </div>
+                          <span className="text-[10px] bg-neutral-800 text-neutral-400 px-2.5 py-1 rounded-full border border-neutral-700/50">
+                            {olt.onus.length} ONUs
+                          </span>
+                        </div>
+                        <div className="overflow-hidden rounded-lg border border-neutral-800/70 bg-black/20">
+                          <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 bg-neutral-800/50 text-[11px] font-bold text-neutral-500 uppercase">
+                            <div className="col-span-2">SN / Label</div>
+                            <div className="col-span-1">Tipo</div>
+                            <div className="col-span-2 text-center">Board/Port/Pon</div>
+                            <div className="col-span-4">Descripción</div>
+                            <div className="col-span-2 text-center">Modelo</div>
+                            <div className="col-span-1 text-right">Acción</div>
+                          </div>
+                          <div className="divide-y divide-neutral-800">
+                            {olt.onus.map((onu) => (
+                              <div key={onu.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-2 px-3 sm:px-4 py-4 md:py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
+                                 <div className="col-span-12 md:col-span-2 flex flex-row md:flex-col justify-between items-start md:justify-center">
+                                  <div className="flex flex-col">
+                                      <span className="font-medium text-neutral-200 truncate">{onu.label}</span>
+                                      <span className="text-[11px] font-mono text-neutral-500 uppercase bg-neutral-900/50 px-1 rounded w-fit mt-0.5">{onu.sn || 'Sin SN'}</span>
+                                  </div>
+                                  <span className="md:hidden px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
+                                    {onu.ponType || 'GPON'}
+                                  </span>
+                                </div>
+                                <div className="hidden md:block col-span-4 md:col-span-1">
+                                  <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">
+                                    {onu.ponType || 'GPON'}
+                                  </span>
+                                </div>
+                                <div className="col-span-4 md:col-span-2 flex items-center md:justify-center gap-2 text-neutral-300">
+                                  <Network className="size-3.5 md:hidden text-neutral-500" />
+                                  <span className="md:hidden text-neutral-500 text-xs">Puerto:</span>
+                                  <span className="font-mono bg-neutral-800/40 px-1.5 py-0.5 rounded">{onu.board}/{onu.port}/{onu.ponPort}</span>
+                                </div>
+                                <div className="col-span-12 md:col-span-4 text-xs text-neutral-400 italic truncate flex items-center gap-2">
+                                  <span className="md:hidden not-italic font-semibold text-neutral-500">Desc:</span>
+                                  {onu.description || 'Sin descripción'}
+                                </div>
+                                <div className="col-span-4 md:col-span-2 md:text-center text-neutral-400 flex items-center md:justify-center gap-2">
+                                  <HardDrive className="size-3.5 md:hidden text-neutral-500" />
+                                  <span className="md:hidden text-neutral-500 text-xs">Modelo:</span>
+                                  {onu.type || onu.model || 'N/A'}
+                                </div>
+                                <div className="col-span-12 md:col-span-1 text-right mt-1 md:mt-0">
+                                  <Button 
+                                    size="sm" 
+                                    onClick={() => handleOnuSelect(onu, olt)} 
+                                    className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20 rounded-lg active:scale-95 transition-transform"
+                                  >
+                                    Usar
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
               {/* --- BOTONES Y ACCIONES --- */}
-              <div className="mt-2 space-y-4">
+                <div className="mt-2 space-y-4 px-1 sm:px-0">
                 {selectionButtonsToRender.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-[90%] mx-auto md:w-full md:mx-0">
-                    {selectionButtonsToRender.map(a => (
-                      <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
-                        {a.label}
-                      </Button>
-                    ))}
+                  <div className="w-full flex justify-start">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full md:max-w-none">
+                      {selectionButtonsToRender.map(a => (
+                        <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
+                          {a.label}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
                 )}
                 
                 {otherButtons.length > 0 && (
-                  <div className="flex flex-wrap gap-2 w-[90%] mx-auto md:w-full md:mx-0 justify-center md:justify-start">
-                    {otherButtons.map(a => {
-                       if (a.type === 'link' && a.url) {
-                        const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
+                  <div className="w-full flex justify-start">
+                    <div className="flex flex-wrap gap-2 w-full md:max-w-none justify-start">
+                      {otherButtons.map(a => {
+                         if (a.type === 'link' && a.url) {
+                          const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
+                          return (
+                            <a 
+                              key={a.id} href={href} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center rounded-lg text-sm font-medium h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 px-4 hover:text-white transition-colors no-underline border border-neutral-700"
+                            >
+                              {a.label}
+                            </a>
+                          );
+                        }
                         return (
-                          <a 
-                            key={a.id} href={href} target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center justify-center rounded-lg text-sm font-medium h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 px-4 hover:text-white transition-colors no-underline border border-neutral-700"
-                          >
+                          <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white border border-neutral-700">
                             {a.label}
-                          </a>
+                          </Button>
                         );
-                      }
-                      return (
-                        <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white border border-neutral-700">
-                          {a.label}
-                        </Button>
-                      );
-                    })}
+                      })}
+                    </div>
                   </div>
                 )}
 
                 {inputActions.length > 0 && (
-                  <div className="space-y-4 bg-neutral-900/40 p-5 rounded-2xl border border-neutral-800/60 shadow-inner w-[90%] mx-auto md:w-full md:mx-0">
-                    {inputActions.map(action => {
-                      // Determinar si es Read-Only
-                      const isReadOnly = READ_ONLY_FIELDS.includes(action.id);
-                      
-                      return (
-                        <div key={action.id} className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-neutral-400 font-medium ml-1">{action.label}</div>
-                            {isReadOnly && <Lock className="size-3 text-neutral-600" />}
-                          </div>
-                          
-                          {action.options?.length ? (
-                            <SearchableSelect 
-                              action={action} 
-                              value={inputValues[action.id] || ''} 
-                              disabled={isReadOnly || action.disabled}
-                              onChange={(val) => {
-                                setInputValues(p => ({ ...p, [action.id]: val }));
-                                if (action.id === 'auth-zone') fetchOdbOptionsForZone(val);
-                                if (action.id === 'auth-odb') fetchPortsForOdb(val);
-                              }} 
-                            />
-                          ) : (
-                            <div className="relative">
-                              <Input 
-                                value={inputValues[action.id] || ''} 
-                                type={action.id === 'wifi_pass' && !showWifiPass ? 'password' : 'text'}
-                                readOnly={isReadOnly}
-                                disabled={isReadOnly || action.disabled}
-                                onChange={(e) => {
-                                  setInputValues(p => ({ ...p, [action.id]: e.target.value }));
-                                  if (action.id === 'wifi_pass') setWifiError(null);
-                                }} 
-                                placeholder={action.placeholder} 
-                                className={`h-10 bg-neutral-950 border-neutral-800 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${action.id === 'wifi_pass' ? 'pr-10' : ''} ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500' : ''} ${isReadOnly ? 'opacity-60 cursor-not-allowed bg-neutral-900 text-neutral-400 select-none' : ''}`} 
-                              />
-                              
-                              {action.id === 'wifi_pass' && (
-                                <button
-                                  type="button"
-                                  onClick={() => setShowWifiPass(!showWifiPass)}
-                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors focus:outline-none"
-                                  tabIndex={-1}
-                                >
-                                  {showWifiPass ? (
-                                    <EyeOff className="size-4" />
-                                  ) : (
-                                    <Eye className="size-4" />
-                                  )}
-                                </button>
-                              )}
-
-                              {action.helperText && !wifiError && <div className="text-[10px] text-neutral-600 mt-1 ml-1">{action.helperText}</div>}
+                  <div className="w-full flex justify-start">
+                    <div className="space-y-4 bg-neutral-900/60 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 shadow-inner ring-1 ring-neutral-800/50 w-full md:max-w-none">
+                      {inputActions.map(action => {
+                        // Determinar si es Read-Only
+                        const isReadOnly = READ_ONLY_FIELDS.includes(action.id);
+                        
+                        return (
+                          <div key={action.id} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-neutral-400 font-medium ml-1">{action.label}</div>
+                              {isReadOnly && <Lock className="size-3 text-neutral-600" />}
                             </div>
-                          )}
-                          {action.id === 'wifi_pass' && wifiError && (
-                            <span className="text-[10px] text-red-500 mt-1 block animate-in slide-in-from-top-1 ml-1">{wifiError}</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {submitAction && (
-                      <Button 
-                        className={`w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold mt-2 shadow-lg shadow-emerald-900/20 transition-all ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        onClick={handleBulkSubmit}
-                        disabled={submitAction.id === 'wifi_submit' && !!wifiError}
-                      >
-                        {submitAction.label}
-                      </Button>
-                    )}
+                            
+                            {action.options?.length ? (
+                              <SearchableSelect 
+                                action={action} 
+                                value={inputValues[action.id] || ''} 
+                                disabled={isReadOnly || action.disabled}
+                                onChange={(val) => {
+                                  setInputValues(p => ({ ...p, [action.id]: val }));
+                                  if (action.id === 'auth-zone') fetchOdbOptionsForZone(val);
+                                  if (action.id === 'auth-odb') fetchPortsForOdb(val);
+                                }} 
+                              />
+                            ) : (
+                              <div className="relative">
+                                <Input 
+                                  value={inputValues[action.id] || ''} 
+                                  type={action.id === 'wifi_pass' && !showWifiPass ? 'password' : 'text'}
+                                  readOnly={isReadOnly}
+                                  disabled={isReadOnly || action.disabled}
+                                  onChange={(e) => {
+                                    setInputValues(p => ({ ...p, [action.id]: e.target.value }));
+                                    if (action.id === 'wifi_pass') setWifiError(null);
+                                  }} 
+                                  placeholder={action.placeholder} 
+                                  className={`h-10 bg-neutral-950/80 border-neutral-800 focus:border-emerald-500/60 focus-visible:ring-2 focus-visible:ring-emerald-500/20 ${action.id === 'wifi_pass' ? 'pr-10' : ''} ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500/30' : ''} ${isReadOnly ? 'opacity-60 cursor-not-allowed bg-neutral-900 text-neutral-400 select-none' : ''}`} 
+                                />
+                                
+                                {action.id === 'wifi_pass' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowWifiPass(!showWifiPass)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors focus:outline-none"
+                                    tabIndex={-1}
+                                  >
+                                    {showWifiPass ? (
+                                      <EyeOff className="size-4" />
+                                    ) : (
+                                      <Eye className="size-4" />
+                                    )}
+                                  </button>
+                                )}
+
+                                {action.helperText && !wifiError && <div className="text-[10px] text-neutral-600 mt-1 ml-1">{action.helperText}</div>}
+                              </div>
+                            )}
+                            {action.id === 'wifi_pass' && wifiError && (
+                              <span className="text-[10px] text-red-500 mt-1 block animate-in slide-in-from-top-1 ml-1">{wifiError}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {submitAction && (
+                        <Button 
+                          className={`w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold mt-2 shadow-lg shadow-emerald-900/20 transition-all ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          onClick={handleBulkSubmit}
+                          disabled={submitAction.id === 'wifi_submit' && !!wifiError}
+                        >
+                          {submitAction.label}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

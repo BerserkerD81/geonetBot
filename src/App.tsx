@@ -117,44 +117,65 @@ function ChatApp() {
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
   const prevStatusRef = useRef<IntegrationStatus | null>(null);
 
+  const refreshChatTitles = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/chat/sessions`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+
+      if (!res.ok) return;
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sessions: any[] = data.sessions || [];
+
+      setChats((prev) => {
+        const adminChats = prev.filter((c) => c.isAdminHistory);
+        const personalChats = prev.filter((c) => !c.isAdminHistory);
+        const existingById = new Map(personalChats.map((c) => [c.id, c]));
+        const sessionById = new Map(sessions.map((s) => [String(s.id), s]));
+
+        const orderedFromSessions: Chat[] = sessions.map((s) => {
+          const id = String(s.id);
+          const existing = existingById.get(id);
+          return {
+            ...(existing || {
+              id,
+              preview: 'Cargar mensajes...',
+              messages: [],
+              messagesLoaded: false,
+              hasMoreMessages: true,
+              isAdminHistory: false,
+            }),
+            title: s.title || existing?.title || 'Conversación',
+            timestamp: s.createdAt ? new Date(s.createdAt).toLocaleDateString() : existing?.timestamp || '...',
+          };
+        });
+
+        const missingPersonal = personalChats.filter((c) => !sessionById.has(c.id));
+
+        return [...orderedFromSessions, ...missingPersonal, ...adminChats];
+      });
+    } catch (error) {
+      console.error('Error refrescando títulos de chats:', error);
+    }
+  }, []);
+
   // -------------------------------------------------------------------------
-  // 1. CARGA INICIAL (SESIONES LISTA LIGERA)
+  // 1. CARGA INICIAL + REFRESCO DINÁMICO (SESIONES LISTA LIGERA)
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!user) return;
 
-    const fetchSessions = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/chat/sessions`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-        });
+    void refreshChatTitles();
 
-        if (res.ok) {
-          const data = await res.json();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const mappedChats: Chat[] = (data.sessions || []).map((s: any) => ({
-            id: String(s.id),
-            title: s.title || 'Conversación',
-            timestamp: new Date(s.createdAt).toLocaleDateString(),
-            preview: 'Cargar mensajes...', 
-            messages: [], 
-            messagesLoaded: false,
-            hasMoreMessages: true, 
-            isAdminHistory: false
-          }));
-          setChats(mappedChats);
-        } else {
-          console.error('Error cargando sesiones:', res.statusText);
-        }
-      } catch (error) {
-        console.error('Error de red al obtener sesiones:', error);
-      }
-    };
+    const id = setInterval(() => {
+      void refreshChatTitles();
+    }, 30000);
 
-    fetchSessions();
-  }, [user]);
+    return () => clearInterval(id);
+  }, [user, refreshChatTitles]);
 
   useEffect(() => {
     if (searchOpen) {
@@ -334,6 +355,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
         }
     }
     
+      void refreshChatTitles();
     setAnimatingMessageId(null);
 };
 
@@ -410,6 +432,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
               : chat
           )
         );
+        void refreshChatTitles();
       } else {
         const newChat: Chat = {
           id: returnedSessionId,
@@ -422,6 +445,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
         };
         setChats((prev) => [newChat, ...prev]);
         setActiveChat(returnedSessionId);
+        void refreshChatTitles();
       }
     } catch (err) {
       console.error('Fallo al contactar backend', err);
@@ -556,6 +580,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
     if (lastAssistantMessage.role !== 'assistant') return;
 
     const lastUserMessage = [...currentChat.messages]
+      .slice(0, lastAssistantMessageIndex)
       .reverse()
       .find((msg) => msg.role === 'user');
 
