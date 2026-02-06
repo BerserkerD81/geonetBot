@@ -2,9 +2,10 @@ import { Bot, Activity ,ImageIcon} from 'lucide-react';
 
 interface EmptyChatProps {
   onSelectQuery?: (query: string) => void;
+  disabled?: boolean;
 }
 
-export function EmptyChat({ onSelectQuery }: EmptyChatProps) {
+export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
   const exampleQueries = [
     {
       icon: Activity,
@@ -58,7 +59,12 @@ export function EmptyChat({ onSelectQuery }: EmptyChatProps) {
                   <button
                     key={index}
                     onClick={() => onSelectQuery?.(example.query)}
-                    className="group p-4 rounded-xl bg-neutral-900/50 border border-neutral-800/80 hover:bg-neutral-800/60 hover:border-neutral-700 transition-all duration-300 text-left relative overflow-hidden shadow-sm hover:shadow-md hover:shadow-emerald-500/5 h-full"
+                    disabled={disabled}
+                    className={`group p-4 rounded-xl bg-neutral-900/50 border border-neutral-800/80 transition-all duration-300 text-left relative overflow-hidden shadow-sm h-full ${
+                      disabled
+                        ? 'opacity-60 cursor-not-allowed'
+                        : 'hover:bg-neutral-800/60 hover:border-neutral-700 hover:shadow-md hover:shadow-emerald-500/5'
+                    }`}
                   >
                     <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/0 to-green-600/0 group-hover:from-emerald-500/5 group-hover:to-green-600/5 transition-all duration-300" />
                     

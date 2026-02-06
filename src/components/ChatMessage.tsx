@@ -92,6 +92,7 @@ interface ChatMessageProps {
   imageDataUrl?: string;
   createdAt?: string;
   isLatest?: boolean;
+  isAwaitingResponse?: boolean;
   onRetry?: () => void;
   shouldAnimate?: boolean;
   messageId?: string;
@@ -386,6 +387,7 @@ export function ChatMessage({
   imageDataUrl,
   createdAt,
   isLatest = false,
+  isAwaitingResponse = false,
   onRetry,
   shouldAnimate = false,
   messageId = '',
@@ -419,10 +421,13 @@ export function ChatMessage({
   } | null>(null);
   const [wifiError, setWifiError] = useState<string | null>(null);
   const [showWifiPass, setShowWifiPass] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Estado para la animación
   const [displayedContent, setDisplayedContent] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+
+  const disableActionButtons = !isUser && isLatest && (isAwaitingResponse || isSubmitting);
 
   // Estados de Procesamiento (Modal) - Corrección: Tipado explícito
   const [isProcessing, setIsProcessing] = useState(false);
@@ -673,6 +678,10 @@ export function ChatMessage({
     .filter(a => !(hasInstallationsTable && hasClientSelectActions && (a.id.startsWith('select-client-') || (a.payload || '').toLowerCase().includes('seleccionar cliente'))));
   
 const handleBulkSubmit = async () => {
+  if (disableActionButtons) return;
+  setIsSubmitting(true);
+
+  try {
     // 1. Identificar el tipo de acción
     const isWanFlow = submitAction?.id === 'wan-apply';
     const isWifiFlow = submitAction?.id === 'wifi_submit'; 
@@ -809,6 +818,9 @@ const handleBulkSubmit = async () => {
       }
       // Nota: Para otros flujos (Wifi/Wan) podrías poner un toast de error aquí si quisieras.
     }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   const hasVersions = versions && versions.length > 1;
   const currentIdx = currentVersion ?? 0;
@@ -902,6 +914,7 @@ const handleBulkSubmit = async () => {
                               <Button 
                                 size="sm" 
                                 onClick={() => inst.actionPayload && onActionSelect?.(inst.actionPayload)} 
+                                disabled={disableActionButtons}
                                 className="w-full md:w-auto h-9 md:h-7 text-xs font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-lg"
                               >
                                 {(inst.actionPayload || '').toLowerCase().includes('seleccionar cliente') ? 'Seleccionar' : 'Autorizar'}
@@ -979,6 +992,7 @@ const handleBulkSubmit = async () => {
                                   <Button 
                                     size="sm" 
                                     onClick={() => handleOnuSelect(onu, olt)} 
+                                    disabled={disableActionButtons}
                                     className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20 rounded-lg active:scale-95 transition-transform"
                                   >
                                     Usar
@@ -1000,7 +1014,7 @@ const handleBulkSubmit = async () => {
                   <div className="w-full flex justify-start">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full md:max-w-none">
                       {selectionButtonsToRender.map(a => (
-                        <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
+                        <Button key={a.id} size="sm" disabled={disableActionButtons} onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
                           {a.label}
                         </Button>
                       ))}
@@ -1014,6 +1028,17 @@ const handleBulkSubmit = async () => {
                       {otherButtons.map(a => {
                          if (a.type === 'link' && a.url) {
                           const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
+                          if (disableActionButtons) {
+                            return (
+                              <span
+                                key={a.id}
+                                className="inline-flex items-center justify-center rounded-lg text-sm font-medium h-9 bg-neutral-900 text-neutral-600 px-4 border border-neutral-800 cursor-not-allowed select-none"
+                                aria-disabled="true"
+                              >
+                                {a.label}
+                              </span>
+                            );
+                          }
                           return (
                             <a 
                               key={a.id} href={href} target="_blank" rel="noopener noreferrer"
@@ -1024,7 +1049,7 @@ const handleBulkSubmit = async () => {
                           );
                         }
                         return (
-                          <Button key={a.id} size="sm" onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white border border-neutral-700">
+                          <Button key={a.id} size="sm" disabled={disableActionButtons} onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white border border-neutral-700">
                             {a.label}
                           </Button>
                         );
@@ -1101,7 +1126,7 @@ const handleBulkSubmit = async () => {
                         <Button 
                           className={`w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold mt-2 shadow-lg shadow-emerald-900/20 transition-all ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
                           onClick={handleBulkSubmit}
-                          disabled={submitAction.id === 'wifi_submit' && !!wifiError}
+                          disabled={disableActionButtons || (submitAction.id === 'wifi_submit' && !!wifiError)}
                         >
                           {submitAction.label}
                         </Button>

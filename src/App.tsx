@@ -93,6 +93,8 @@ function ChatApp() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [isAwaitingResponse, setIsAwaitingResponse] = useState(false);
+  const requestInFlightRef = useRef(false);
   
   // UI States
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 768);
@@ -377,6 +379,10 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
   // -------------------------------------------------------------------------
   const handleSendMessage = async (content: string, imageDataUrl?: string) => {
     if (!content.trim() && !imageDataUrl) return;
+    if (requestInFlightRef.current) return;
+
+    requestInFlightRef.current = true;
+    setIsAwaitingResponse(true);
 
     try {
       const currentSessionId = (activeChat && !activeChat.startsWith('admin-')) ? activeChat : undefined;
@@ -450,6 +456,9 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
     } catch (err) {
       console.error('Fallo al contactar backend', err);
       toast.error('Error de conexión');
+    } finally {
+      requestInFlightRef.current = false;
+      setIsAwaitingResponse(false);
     }
   };
 
@@ -465,6 +474,10 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
   const handleSubmitAuth = async (collected: Record<string, unknown>) => {
     const currentChat = chats.find(c => c.id === activeChat);
     if (!currentChat) return;
+    if (requestInFlightRef.current) return;
+
+    requestInFlightRef.current = true;
+    setIsAwaitingResponse(true);
 
     try {
       const res = await fetch(`${API_BASE}/chat/submitAuth`, {
@@ -517,12 +530,19 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
     } catch (err) {
       console.error('submitAuth error', err);
       toast.error('Fallo al autorizar');
+    } finally {
+      requestInFlightRef.current = false;
+      setIsAwaitingResponse(false);
     }
   };
 
   const handleSubmitWan = async (collected: Record<string, unknown>) => {
     const currentChat = chats.find(c => c.id === activeChat);
     if (!currentChat) return;
+    if (requestInFlightRef.current) return;
+
+    requestInFlightRef.current = true;
+    setIsAwaitingResponse(true);
 
     try {
       const res = await fetch(`${API_BASE}/chat/applyPendingWan`, {
@@ -569,6 +589,9 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
     } catch (err) {
       console.error('applyPendingWan error', err);
       toast.error('Fallo al configurar WAN');
+    } finally {
+      requestInFlightRef.current = false;
+      setIsAwaitingResponse(false);
     }
   };
 
@@ -585,6 +608,10 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
       .find((msg) => msg.role === 'user');
 
     if (!lastUserMessage) return;
+
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
+    setIsAwaitingResponse(true);
 
     try {
       const res = await fetch(`${API_BASE}/chat/respond`, {
@@ -633,6 +660,9 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
       }, newContent.length * 10 + 100);
     } catch (err) {
       console.error('Fallo en reintento', err);
+    } finally {
+      requestInFlightRef.current = false;
+      setIsAwaitingResponse(false);
     }
   };
 
@@ -1034,6 +1064,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
                         content={message.content}
                         imageDataUrl={message.imageDataUrl}
                         isLatest={index === currentChat.messages.length - 1 && message.role === 'assistant'}
+                        isAwaitingResponse={isAwaitingResponse}
                         onRetry={handleRetry}
                         shouldAnimate={animationKey}
                         messageId={message.id}
@@ -1057,7 +1088,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
           </ScrollArea>
         ) : (
           <div className="flex-1 overflow-y-auto bg-neutral-950">
-            <EmptyChat onSelectQuery={handleSendMessage} />
+            <EmptyChat onSelectQuery={handleSendMessage} disabled={isAwaitingResponse} />
           </div>
         )}
 
@@ -1068,7 +1099,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
               Vista de historial de usuario (solo lectura).
             </div>
           ) : (
-            <ChatInput onSendMessage={handleSendMessage} />
+            <ChatInput onSendMessage={handleSendMessage} isLoading={isAwaitingResponse} />
           )}
         </div>
       </div>
