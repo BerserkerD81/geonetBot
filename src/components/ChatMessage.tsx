@@ -663,7 +663,7 @@ export function ChatMessage({
       return true;
     });
 
-  const submitAction = buttonActions.find((a) => a.id === 'auth-submit' || a.id === 'wan-apply' || a.id === 'wifi_submit');
+  const submitAction = buttonActions.find((a) => a.id === 'auth-submit' || a.id === 'wan-apply' || a.id === 'wifi_submit' || a.id === 'change-onu-submit');
   
   const selectionButtonsToRender = buttonActions.filter((a) => {
     const isSelection = a.id.startsWith('select') || (a.payload || '').toLowerCase().includes('seleccionar');
@@ -686,6 +686,7 @@ const handleBulkSubmit = async () => {
     const isWanFlow = submitAction?.id === 'wan-apply';
     const isWifiFlow = submitAction?.id === 'wifi_submit'; 
     const isAuth = submitAction?.id === 'auth-submit';
+    const isChangeOnuFlow = submitAction?.id === 'change-onu-submit';
 
     // 2. Validación específica para WiFi (antes de procesar nada)
     if (isWifiFlow) {
@@ -750,9 +751,10 @@ const handleBulkSubmit = async () => {
       Object.assign(collected, selectedOnu);
     }
 
-    // Preparar payload para acciones genéricas (reemplazo de variables como {ssid})
+    // Preparar payload para acciones genéricas (reemplazo de variables como {ssid}).
+    // Aplicar el mismo reemplazo de placeholders para el flujo de cambio de ONU.
     let finalPayload = submitAction?.payload || '';
-    if (isWifiFlow && finalPayload) {
+    if ((isWifiFlow || isChangeOnuFlow) && finalPayload) {
       Object.keys(collected).forEach((key) => {
         finalPayload = finalPayload.replace(new RegExp(`{${key}}`, 'g'), collected[key]);
       });
@@ -786,6 +788,10 @@ const handleBulkSubmit = async () => {
         setIsProcessing(false);
 
       } 
+      else if (isChangeOnuFlow) {
+        if (onSubmitAction) await onSubmitAction(finalPayload, collected);
+        else if (onActionSelect) onActionSelect(finalPayload);
+      }
       else if (isWifiFlow) {
         // B) FLUJO WIFI
         if (onSubmitAction) await onSubmitAction(finalPayload, collected);

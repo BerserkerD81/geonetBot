@@ -1,4 +1,4 @@
-import { Bot, Activity ,ImageIcon} from 'lucide-react';
+import { Bot, Activity, ImageIcon, Wifi, Server } from 'lucide-react';
 
 interface EmptyChatProps {
   onSelectQuery?: (query: string) => void;
@@ -18,6 +18,18 @@ export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
       title: 'Agregar fotos a clientes',
       query: 'quiero agregar fotos de instalaicion',
       description: 'Carga evidencias para un cliente específico'
+    },
+    {
+      icon: Wifi,
+      title: 'Cambiar WiFi',
+      query: 'cambiar wifi',
+      description: 'Actualiza la configuración de red inalámbrica actualmente solo funciona en ONUs ZTE'
+    },
+    {
+      icon: Server,
+      title: 'Cambiar ONU',
+      query: 'cambiar onu',
+      description: 'Gestiona el reemplazo de una ONU'
     },
   ];
 
