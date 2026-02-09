@@ -46,6 +46,15 @@ type OltEntry = {
   onus: OnuEntry[];
 };
 
+type UnconfiguredOnu = {
+  olt?: string;
+  sn?: string;
+  serial?: string;
+  pon?: string;
+  port?: string;
+  model?: string;
+};
+
 type OdbApiResponseItem = {
   id?: string | number;
   name?: string;
@@ -186,6 +195,44 @@ const parseMarkdownTableToInstallations = (content: string, actions?: ActionOpti
     return parsed;
   } catch (e) {
     console.error("Error parseando tabla markdown", e);
+    return [];
+  }
+};
+
+const parseUnconfiguredOnusFromMarkdown = (content: string): UnconfiguredOnu[] => {
+  try {
+    const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
+    // fallback: look for header line containing OLT and SN
+    let hdrLine = lines.find(l => /olt\s*\|\s*sn/i.test(l) || /modelo\s*\|/i.test(l));
+    if (!hdrLine) hdrLine = lines[0] || '';
+
+    const isOnuTable = /olt/i.test(hdrLine) && /sn/i.test(hdrLine);
+    if (!isOnuTable) return [];
+
+    // rows are lines that start with | (markdown tables)
+    const tableLines = lines.filter(l => l.startsWith('|'));
+    if (tableLines.length < 2) return [];
+
+    const data: UnconfiguredOnu[] = tableLines.slice(1).map(line => {
+      const cols = line.split('|').map(c => c.trim());
+      const obj: UnconfiguredOnu = {};
+      obj.olt = cols[1] || cols[2] || '';
+      obj.sn = (cols[2] || cols[3] || '').replace(/\[.*?\]/g, '').trim();
+      obj.pon = cols[3] || cols[4] || '';
+      obj.port = cols[4] || cols[5] || '';
+      obj.model = cols[5] || cols[6] || '';
+      return obj;
+    })
+    // filter out placeholder rows like '| - | - | - | - | - | - |'
+    .filter(r => {
+      if (!r) return false;
+      const vals = [r.olt, r.sn, r.pon, r.port, r.model].map(v => String(v || '').trim());
+      const allEmptyOrDash = vals.every(v => !v || /^-+$/.test(v) || /^\s*-\s*$/.test(v));
+      return !allEmptyOrDash && (r.sn || r.olt);
+    });
+
+    return data;
+  } catch {
     return [];
   }
 };
@@ -506,6 +553,17 @@ export function ChatMessage({
     }
     return [];
   }, [metadata, content, isUser, actions, hasClientSelectActions]);
+
+  const unconfiguredOnus = useMemo(() => {
+    if (isUser) return [];
+    const parsed = parseUnconfiguredOnusFromMarkdown(content);
+    return parsed;
+  }, [content, isUser]);
+
+  const hasOnuTableInContent = useMemo(() => {
+    if (isUser) return false;
+    return /\|\s*#\s*\|\s*OLT\s*\|\s*SN/i.test(content) || /onus sin autorizar/i.test(content) || /olt\s*\|\s*sn/i.test(content);
+  }, [content, isUser]);
   
   const hasInstallationsTable = Boolean(installations.length);
 
@@ -514,7 +572,7 @@ export function ChatMessage({
   const finalCleanText = useMemo(() => {
     if (isUser) return content;
     
-    if (hasInstallationsTable || hasSmartoltTable) {
+    if (hasInstallationsTable || hasSmartoltTable || hasOnuTableInContent) {
         const tableRegex = /^\|.*\|[\s\S]*?(\n(?![ \t]*\|)|$)/gm;
         const cleaned = content.replace(tableRegex, '').trim();
         return cleaned || (hasInstallationsTable ? "He encontrado las siguientes instalaciones:" : "");
@@ -663,7 +721,15 @@ export function ChatMessage({
       return true;
     });
 
-  const submitAction = buttonActions.find((a) => a.id === 'auth-submit' || a.id === 'wan-apply' || a.id === 'wifi_submit' || a.id === 'change-onu-submit');
+  const submitAction = buttonActions.find((a) => {
+    const id = String(a.id || '').toLowerCase();
+    if (['auth-submit', 'wan-apply', 'wifi_submit', 'change-onu-submit'].includes(id)) return true;
+    // Match explicit wifi submit/apply variants only (avoid matching search buttons like wifi_search_submit)
+    if (/^wifi(?:[_-]?)(?:apply|submit)$/i.test(id)) return true;
+    // Match explicit change-onu submit/apply (english/spanish)
+    if (/^(?:change[_-]?onu|cambio[_-]?onu)(?:[_-]?(?:submit|apply))?$/i.test(id)) return true;
+    return false;
+  });
   
   const selectionButtonsToRender = buttonActions.filter((a) => {
     const isSelection = a.id.startsWith('select') || (a.payload || '').toLowerCase().includes('seleccionar');
@@ -683,14 +749,16 @@ const handleBulkSubmit = async () => {
 
   try {
     // 1. Identificar el tipo de acción
-    const isWanFlow = submitAction?.id === 'wan-apply';
-    const isWifiFlow = submitAction?.id === 'wifi_submit'; 
-    const isAuth = submitAction?.id === 'auth-submit';
-    const isChangeOnuFlow = submitAction?.id === 'change-onu-submit';
+    const sid = String(submitAction?.id || '').toLowerCase();
+    const isWanFlow = sid === 'wan-apply' || sid.endsWith('wan-apply');
+    const isWifiFlow = /^wifi(?:[_-]?)(?:apply|submit)$/i.test(sid);
+    const isAuth = sid === 'auth-submit';
+    const isChangeOnuFlow = /^(?:change[_-]?onu|cambio[_-]?onu)/i.test(sid);
 
     // 2. Validación específica para WiFi (antes de procesar nada)
     if (isWifiFlow) {
-      const pass = inputValues['wifi_pass'] || '';
+      // Support different wifi field ids returned by backend (wifi_pass, wifi_onu_pass, wifi_passwd...)
+      const pass = inputValues['wifi_pass'] || inputValues['wifi_onu_pass'] || inputValues['wifi_passwd'] || '';
       // Regex: Mínimo 8 caracteres, al menos 1 mayúscula y 1 número
       const passRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
       if (!passRegex.test(pass)) {
@@ -865,7 +933,60 @@ const handleBulkSubmit = async () => {
               <div className="text-neutral-50 text-sm sm:text-[15px] leading-[1.8] whitespace-pre-wrap break-words">
                 {displayedContent}
                 {isTyping && <span className="inline-block w-1.5 h-4 align-middle bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
-                
+
+                {unconfiguredOnus.length > 0 && (
+                  <div className="mt-4 w-full">
+                    <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold mb-2">
+                      <span className="h-2 w-2 rounded-full bg-amber-500" /> ONUs sin autorizar
+                    </div>
+                    <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden shadow-sm">
+                      <div className="hidden md:grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
+                        <div className="col-span-2">OLT</div>
+                        <div className="col-span-3">SN</div>
+                        <div className="col-span-2 text-center">PON</div>
+                        <div className="col-span-2 text-center">Port</div>
+                        <div className="col-span-3">Modelo</div>
+                      </div>
+                      <div className="divide-y divide-neutral-800">
+                        {unconfiguredOnus.map((o: UnconfiguredOnu, idx: number) => {
+                          const sn = String(o.sn || o.serial || '').trim();
+                          const actionMatch = safeActions.find(a => String(a.label || '').trim() === sn || String(a.payload || '').includes(sn));
+                          return (
+                            <div key={idx} className="flex flex-col md:grid md:grid-cols-12 md:items-center px-3 sm:px-4 py-3 text-sm text-neutral-100 hover:bg-neutral-800/40 transition-colors gap-2 md:gap-0">
+                              <div className="md:col-span-2 font-mono text-xs text-neutral-500">{o.olt || '-'}</div>
+                              <div className="md:col-span-3 font-medium break-words">{sn || '-'}</div>
+                              <div className="md:col-span-2 text-center text-xs text-neutral-400">{o.pon || '-'}</div>
+                              <div className="md:col-span-2 text-center text-xs text-neutral-400">{o.port || '-'}</div>
+                              <div className="md:col-span-3 text-xs text-neutral-400 truncate">{o.model || '-'}</div>
+                              <div className="md:col-span-12 md:col-start-12 text-right mt-2 md:mt-0">
+                                <Button size="sm" onClick={() => {
+                                  if (actionMatch) {
+                                    onActionSelect?.(resolvePayload(actionMatch.payload, actionMatch.label));
+                                  } else if (sn) {
+                                    onActionSelect?.(`seleccionar onu ${sn}`);
+                                  }
+                                }} className="w-full md:w-auto h-9 md:h-8 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg">
+                                  Seleccionar
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* If the assistant included an ONU table but parsing returned no rows, show a friendly notice */}
+                {hasOnuTableInContent && unconfiguredOnus.length === 0 && (
+                  <div className="mt-4 w-full">
+                    <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
+                      <div className="font-semibold text-neutral-200 mb-1">ONUs sin autorizar</div>
+                      <div className="text-xs text-neutral-400">No se encontraron ONUs libres para asignar. Intenta refrescar o verifica en SmartOLT.</div>
+                    </div>
+                  </div>
+                )}
+
                 {imageDataUrl && (
                   <div className="mt-4 relative group/img w-full max-w-sm sm:max-w-md">
                     <div className="rounded-2xl border border-neutral-800 bg-neutral-900 shadow-xl transition-all hover:border-emerald-500/50 overflow-hidden">
