@@ -759,10 +759,10 @@ const handleBulkSubmit = async () => {
     if (isWifiFlow) {
       // Support different wifi field ids returned by backend (wifi_pass, wifi_onu_pass, wifi_passwd...)
       const pass = inputValues['wifi_pass'] || inputValues['wifi_onu_pass'] || inputValues['wifi_passwd'] || '';
-      // Regex: Mínimo 8 caracteres, al menos 1 mayúscula y 1 número
-      const passRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
+      // Regex: Mínimo 8 caracteres (sin requerir mayúscula ni número)
+      const passRegex = /^.{8,}$/;
       if (!passRegex.test(pass)) {
-        setWifiError("La contraseña debe tener mín. 8 caracteres, 1 mayúscula y 1 número.");
+        setWifiError("La contraseña debe tener mín. 8 caracteres.");
         return; // Detener ejecución si la validación falla
       }
       setWifiError(null);
