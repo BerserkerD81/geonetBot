@@ -14,7 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 // --- CONSTANTES DE CONFIGURACIÓN DEL FORMULARIO ---
 const HIDDEN_FIELDS = ['auth-olt_id', 'auth-pon_type', 'auth-board', 'auth-onu_mode', 'auth-port'];
 const READ_ONLY_FIELDS = ['auth-name', 'auth-sn'];
-const AUTO_SELECT_FIELDS = ['auth-onu_type', 'auth-vlan', 'auth-zone'];
+const AUTO_SELECT_FIELDS = ['auth-onu_type', 'auth-vlan', 'auth-zone', 'auth-speed'];
 
 // --- TIPOS ---
 
@@ -903,7 +903,7 @@ const handleBulkSubmit = async () => {
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/40' : ''} px-2 sm:px-3 py-2`}>
       <div className="w-full max-w-4xl flex gap-2 sm:gap-3 items-start">
         {!isUser && (
-          <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400" aria-label="Bot">
+          <div className="hidden sm:flex mt-1 h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400" aria-label="Bot">
             <Bot className="size-4" />
           </div>
         )}
@@ -935,11 +935,12 @@ const handleBulkSubmit = async () => {
                 {isTyping && <span className="inline-block w-1.5 h-4 align-middle bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
 
                 {unconfiguredOnus.length > 0 && (
-                  <div className="mt-4 w-full">
-                    <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold mb-2">
-                      <span className="h-2 w-2 rounded-full bg-amber-500" /> ONUs sin autorizar
-                    </div>
-                    <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden shadow-sm">
+                  <div className="mt-4 w-full flex justify-center">
+                    <div className="w-full max-w-[22rem] md:max-w-none">
+                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold mb-2">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" /> ONUs sin autorizar
+                      </div>
+                      <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden shadow-sm">
                       <div className="hidden md:grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
                         <div className="col-span-2">OLT</div>
                         <div className="col-span-3">SN</div>
@@ -973,6 +974,7 @@ const handleBulkSubmit = async () => {
                           );
                         })}
                       </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1004,13 +1006,13 @@ const handleBulkSubmit = async () => {
 
               {/* --- TABLA INSTALACIONES (RESPONSIVE) --- */}
               {hasInstallationsTable && (
-                <div className="mt-4 w-full flex flex-col items-start md:items-stretch px-1 sm:px-0">
-                  <div className="w-full md:max-w-none space-y-3">
+                <div className="mt-4 w-full flex flex-col items-center md:items-stretch px-1 sm:px-0">
+                  <div className="w-full max-w-[22rem] md:max-w-none mx-auto space-y-3">
                     <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
                       <span className="h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_3px_rgba(99,102,241,0.15)]" />
                       {hasClientSelectActions ? 'Clientes encontrados' : 'Instalaciones Pendientes'}
                     </div>
-                    <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden shadow-sm">
+                    <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden shadow-sm w-full">
                       <div className="hidden md:grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
                         <div className="col-span-1">ID</div>
                         <div className="col-span-4">Cliente</div>
@@ -1057,13 +1059,13 @@ const handleBulkSubmit = async () => {
 
               {/* --- TABLA SMARTOLT (RESPONSIVE) --- */}
               {hasSmartoltTable && (
-                <div className="mt-4 w-full flex flex-col items-start md:items-stretch px-1 sm:px-0">
-                  <div className="w-full md:max-w-none space-y-4">
+                <div className="mt-4 w-full flex flex-col items-center md:items-stretch px-1 sm:px-0">
+                  <div className="w-full max-w-[22rem] md:max-w-none mx-auto space-y-4">
                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
                       <span className="h-2 w-2 rounded-full bg-emerald-500" /> Disponibilidad SmartOLT
                     </div>
                     {smartoltAvailability?.olts?.map((olt) => (
-                      <div key={olt.oltId} className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 shadow-sm">
+                      <div key={olt.oltId} className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 shadow-sm w-full">
                          <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                           <div className="flex items-center gap-2">
                              <Server className="size-4 text-emerald-600"/>
@@ -1186,8 +1188,8 @@ const handleBulkSubmit = async () => {
                 )}
 
                 {inputActions.length > 0 && (
-                  <div className="w-full flex justify-start">
-                    <div className="space-y-4 bg-neutral-900/60 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 shadow-inner ring-1 ring-neutral-800/50 w-full md:max-w-none">
+                  <div className="w-full flex justify-center md:justify-start">
+                    <div className="space-y-4 bg-neutral-900/60 p-4 sm:p-5 rounded-2xl border border-neutral-800/80 shadow-inner ring-1 ring-neutral-800/50 w-full max-w-[22rem] md:max-w-none mx-auto">
                       {inputActions.map(action => {
                         // Determinar si es Read-Only
                         const isReadOnly = READ_ONLY_FIELDS.includes(action.id);

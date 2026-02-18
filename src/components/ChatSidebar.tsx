@@ -139,7 +139,7 @@ export function ChatSidebar({
       
       {/* Sidebar Container */}
       <aside 
-        className={`fixed md:relative inset-y-0 left-0 z-50 md:z-auto flex-shrink-0 h-full bg-neutral-950 border-r border-neutral-800/30 overflow-hidden transition-all duration-300 ease-in-out ${
+        className={`fixed md:relative inset-y-0 left-0 z-70 flex-shrink-0 h-full bg-neutral-950 border-r border-neutral-800/30 overflow-hidden transition-all duration-300 ease-in-out ${
           sidebarCollapsed 
             ? '-translate-x-full md:translate-x-0 md:w-0 md:border-r-0' 
             : 'translate-x-0 w-[85vw] md:w-64 md:opacity-100'
@@ -148,10 +148,14 @@ export function ChatSidebar({
         <div className="flex flex-col h-full w-full md:min-w-[16rem]">
           
           {/* Header */}
-          <div className="p-2.5 border-b border-neutral-800/30">
+          <div className="p-2.5 border-b border-neutral-800/30" style={{
+            // Hacer la misma altura que el navbar (incluye safe-area)
+            height: 'calc(56px + env(safe-area-inset-top))',
+            paddingTop: 'env(safe-area-inset-top)'
+          }}>
             <button 
               onClick={onNewChat}
-              className="flex items-center w-full h-10 bg-transparent hover:bg-neutral-900 text-neutral-300 hover:text-white text-sm font-medium transition-all duration-200 rounded-lg border border-neutral-800/50 hover:border-neutral-700 justify-start px-3 shadow-sm hover:shadow-md"
+              className="flex items-center w-full h-full bg-transparent hover:bg-neutral-900 text-neutral-300 hover:text-white text-sm font-medium transition-all duration-200 rounded-lg border border-neutral-800/50 hover:border-neutral-700 justify-start px-3 shadow-sm hover:shadow-md"
             >
               <Plus className="mr-2 size-4 text-neutral-400" />
               Nuevo chat

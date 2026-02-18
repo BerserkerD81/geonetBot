@@ -361,18 +361,21 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
     setAnimatingMessageId(null);
 };
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     setActiveChat(null);
     setAnimatingMessageId(null);
-  };
+    if (window.innerWidth < 768) {
+      setSidebarCollapsed(true);
+    }
+  }, []);
 
-  const handleDeleteChat = (id: string) => {
+  const handleDeleteChat = useCallback((id: string) => {
     setChats((prev) => prev.filter((chat) => chat.id !== id));
     if (activeChat === id) {
       setActiveChat(null);
       setAnimatingMessageId(null);
     }
-  };
+  }, [activeChat]);
 
   // -------------------------------------------------------------------------
   // 4. ENVÍO DE MENSAJES
@@ -865,9 +868,19 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
   }, [currentChat?.messages]);
 
   useEffect(() => {
-    const checkMobile = () => setSidebarCollapsed(window.innerWidth < 768);
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    let raf = 0;
+    const onResize = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const collapsed = window.innerWidth < 768;
+        setSidebarCollapsed((prev) => (prev === collapsed ? prev : collapsed));
+      });
+    };
+    window.addEventListener('resize', onResize, { passive: true });
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   // Auto-scroll al fondo SOLO si NO estamos cargando historial antiguo
@@ -877,6 +890,22 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
     }
   }, [currentChat?.messages.length, activeChat, currentChat?.isLoadingMore]);
 
+  // Detectar tamaño de pantalla para aplicar offset del header en desktop
+  const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 768);
+  useEffect(() => {
+    let raf = 0;
+    const onResize = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setIsDesktop(window.innerWidth >= 768);
+      });
+    };
+    window.addEventListener('resize', onResize, { passive: true });
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
   // Scroll a mensaje específico (Búsqueda)
   useEffect(() => {
     if (!scrollToMessageId) return;
@@ -962,13 +991,13 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
         chats={chats}
         activeChat={activeChat}
         sidebarCollapsed={sidebarCollapsed}
-        onSelectChat={(id) => handleSelectChat(id)}
+        onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
         onDeleteChat={handleDeleteChat}
-        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onOpenSearch={() => setSearchOpen(true)}
-        onOpenAdmin={() => setShowAdminPanel(true)}
-        onOpenProfile={() => { if (!isAdmin) setShowUserPanel(true); }}
+        onToggleSidebar={useCallback(() => setSidebarCollapsed((p) => !p), [])}
+        onOpenSearch={useCallback(() => setSearchOpen(true), [])}
+        onOpenAdmin={useCallback(() => setShowAdminPanel(true), [])}
+        onOpenProfile={useCallback(() => { if (!isAdmin) setShowUserPanel(true); }, [isAdmin])}
       />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
@@ -984,7 +1013,17 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
         )}
         
         {/* Header */}
-        <header className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-neutral-800/50 bg-neutral-950/80 backdrop-blur-xl">
+        <header
+          className="fixed top-0 left-0 right-0 z-60 flex items-center justify-between px-4 py-3 border-b border-neutral-800/50 bg-neutral-950/95 backdrop-blur-xl"
+          style={{
+            // Altura fija del navbar (incluye safe-area)
+            height: 'calc(56px + env(safe-area-inset-top))',
+            paddingTop: 'env(safe-area-inset-top)',
+            // Si estamos en desktop y la sidebar está desplegada, desplazamos el contenido
+            paddingLeft: !sidebarCollapsed && isDesktop ? 'calc(16rem + 0.625rem)' : undefined,
+            transition: 'padding-left 200ms ease, padding-top 200ms ease',
+          }}
+        >
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
@@ -1027,7 +1066,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
 
         {/* Messages Area */}
         {currentChat ? (
-          <ScrollArea className="flex-1 overflow-y-auto bg-neutral-950" ref={scrollViewportRef}>
+          <ScrollArea className="flex-1 overflow-y-auto bg-neutral-950 pt-14" ref={scrollViewportRef}>
             {loadingMessages ? (
               <div className="flex h-full items-center justify-center">
                  <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
@@ -1087,7 +1126,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
             )}
           </ScrollArea>
         ) : (
-          <div className="flex-1 overflow-y-auto bg-neutral-950">
+          <div className="flex-1 overflow-y-auto bg-neutral-950 pt-14">
             <EmptyChat onSelectQuery={handleSendMessage} disabled={isAwaitingResponse} />
           </div>
         )}
