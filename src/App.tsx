@@ -407,13 +407,16 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
         return;
       }
 
-      const userMsg: Message = {
-        id: `m${data.userMessage.id || Date.now()}`,
-        role: 'user',
-        content: data.userMessage.content,
-        imageDataUrl: data.userMessage.imageUrl ?? undefined,
-        createdAt: data.userMessage.createdAt || new Date().toISOString(),
-      };
+      // userMessage may be null for refresh actions; only construct when present
+      const userMsg: Message | undefined = data.userMessage
+        ? {
+            id: `m${data.userMessage.id || Date.now()}`,
+            role: 'user',
+            content: data.userMessage.content,
+            imageDataUrl: data.userMessage.imageUrl ?? undefined,
+            createdAt: data.userMessage.createdAt || new Date().toISOString(),
+          }
+        : undefined;
 
       const assistantMsg: Message = {
         id: `m${data.assistantMessage.id || Date.now() + 1}`,
@@ -428,27 +431,55 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
       setAnimatingMessageId(assistantMsg.id);
       const returnedSessionId = String(data.sessionId);
 
+      // If backend signaled this is an update to the last assistant message, apply an update
+      const isUpdate = Boolean(data.assistantMessage?.isUpdate);
+
       if (currentSessionId) {
         setChats((prev) =>
-          prev.map((chat) =>
-            chat.id === currentSessionId
-              ? {
-                  ...chat,
-                  messages: [...chat.messages, userMsg, assistantMsg],
-                  preview: (content || '[Imagen enviada]').substring(0, 50),
-                  timestamp: new Date().toLocaleTimeString(),
-                }
-              : chat
-          )
+          prev.map((chat) => {
+            if (chat.id !== currentSessionId) return chat;
+
+            // If update: find last assistant message and replace content/actions/metadata
+            if (isUpdate) {
+              const msgs = [...chat.messages];
+              // Find index of last assistant message
+              let idx = -1;
+              for (let i = msgs.length - 1; i >= 0; i--) {
+                if (msgs[i].role === 'assistant') { idx = i; break; }
+              }
+              if (idx >= 0) {
+                const updated = { ...msgs[idx], content: assistantMsg.content, actions: assistantMsg.actions, metadata: assistantMsg.metadata, timestamp: assistantMsg.timestamp };
+                msgs[idx] = updated;
+              } else {
+                // Fallback: append assistant message
+                msgs.push(assistantMsg);
+              }
+
+              // Only append user message if present and not a refresh
+              if (userMsg) msgs.push(userMsg);
+
+              return { ...chat, messages: msgs, preview: (userMsg ? userMsg.content : assistantMsg.content).substring(0, 50), timestamp: new Date().toLocaleTimeString() };
+            }
+
+            // Normal behavior: append user then assistant
+            const newMessages = [...chat.messages];
+            if (userMsg) newMessages.push(userMsg);
+            newMessages.push(assistantMsg);
+            return { ...chat, messages: newMessages, preview: (userMsg || assistantMsg).content.substring(0, 50), timestamp: new Date().toLocaleTimeString() };
+          })
         );
         void refreshChatTitles();
       } else {
+        const msgs: Message[] = [];
+        if (userMsg) msgs.push(userMsg);
+        msgs.push(assistantMsg);
+
         const newChat: Chat = {
           id: returnedSessionId,
           title: (content || 'Nueva conversación').substring(0, 50),
           timestamp: 'Ahora',
           preview: (content || '[Imagen enviada]').substring(0, 50),
-          messages: [userMsg, assistantMsg],
+          messages: msgs,
           messagesLoaded: true,
           hasMoreMessages: false 
         };
@@ -472,6 +503,91 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
   const handleActionSelect = (payload: string) => {
     if (!payload.trim()) return;
     handleSendMessage(payload.trim());
+  };
+
+  // Replace an existing assistant message with a refreshed response
+  const handleReplaceMessage = async (messageId: string, payload: string) => {
+    if (!payload.trim()) return;
+    if (requestInFlightRef.current) return;
+
+    requestInFlightRef.current = true;
+    setIsAwaitingResponse(true);
+
+    try {
+      const currentSessionId = (activeChat && !activeChat.startsWith('admin-')) ? activeChat : undefined;
+
+      const res = await fetch(`${API_BASE}/chat/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ content: payload, sessionId: currentSessionId, replaceMessageId: messageId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('Error obteniendo respuesta del backend (replace)', data?.error || res.statusText);
+        toast.error('Error al refrescar');
+        return;
+      }
+
+      const userMsg: Message | undefined = data.userMessage
+        ? {
+            id: `m${data.userMessage.id || Date.now()}`,
+            role: 'user',
+            content: data.userMessage.content,
+            imageDataUrl: data.userMessage.imageUrl ?? undefined,
+            createdAt: data.userMessage.createdAt || new Date().toISOString(),
+          }
+        : undefined;
+
+      const assistantMsg: Message = {
+        id: `m${data.assistantMessage.id || Date.now() + 1}`,
+        role: 'assistant',
+        content: data.assistantMessage.content,
+        actions: data.assistantMessage.actions ?? [],
+        metadata: data.assistantMessage.metadata ?? null,
+        timestamp: Date.now(),
+        createdAt: data.assistantMessage.createdAt || new Date().toISOString(),
+      };
+
+      if (currentSessionId) {
+        setChats((prev) =>
+          prev.map((chat) => {
+            if (chat.id !== currentSessionId) return chat;
+
+            const msgs = [...chat.messages];
+            const idx = msgs.findIndex(m => m.id === messageId);
+            if (idx >= 0) {
+              // If backend returned the same payload as content (echo), don't overwrite
+              // the existing formatted content — just update actions/metadata/timestamp.
+              const shouldKeepContent = String(assistantMsg.content || '').trim() === String(payload || '').trim();
+              msgs[idx] = {
+                ...msgs[idx],
+                content: shouldKeepContent ? msgs[idx].content : assistantMsg.content,
+                actions: assistantMsg.actions || msgs[idx].actions,
+                metadata: assistantMsg.metadata || msgs[idx].metadata,
+                timestamp: assistantMsg.timestamp,
+              };
+            } else {
+              // fallback: replace last assistant
+              let lastIdx = -1;
+              for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant') { lastIdx = i; break; }
+              if (lastIdx >= 0) msgs[lastIdx] = { ...msgs[lastIdx], content: assistantMsg.content, actions: assistantMsg.actions, metadata: assistantMsg.metadata, timestamp: assistantMsg.timestamp };
+              else msgs.push(assistantMsg);
+            }
+
+            if (userMsg) msgs.push(userMsg);
+
+            return { ...chat, messages: msgs, preview: (userMsg ? userMsg.content : assistantMsg.content).substring(0, 50), timestamp: new Date().toLocaleTimeString() };
+          })
+        );
+      }
+    } catch (err) {
+      console.error('handleReplaceMessage error', err);
+      toast.error('Fallo al refrescar');
+    } finally {
+      requestInFlightRef.current = false;
+      setIsAwaitingResponse(false);
+    }
   };
 
   const handleSubmitAuth = async (collected: Record<string, unknown>) => {
@@ -1112,6 +1228,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
                         onVersionChange={handleVersionChange}
                         actions={message.actions}
                         onActionSelect={handleActionSelect}
+                        onReplaceMessage={handleReplaceMessage}
                         onSubmitAuth={handleSubmitAuth}
                         onSubmitWan={handleSubmitWan}
                         createdAt={message.createdAt}

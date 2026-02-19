@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { 
   Bot, Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
   Copy, RotateCcw, MapPin, Maximize2, Download, Eye, EyeOff, X, ImageOff, Loader2,
@@ -110,6 +110,7 @@ interface ChatMessageProps {
   onVersionChange?: (messageId: string, direction: 'prev' | 'next') => void;
   actions?: ActionOption[];
   onActionSelect?: (payload: string) => void;
+  onReplaceMessage?: (messageId: string, payload: string) => void;
   onSubmitAuth?: (collected: Record<string, string>) => void | Promise<void>;
   onSubmitWan?: (collected: Record<string, string>) => void | Promise<void>;
   onSubmitAction?: (payload: string, collected: Record<string, string>) => void | Promise<void>;
@@ -216,11 +217,16 @@ const parseUnconfiguredOnusFromMarkdown = (content: string): UnconfiguredOnu[] =
     const data: UnconfiguredOnu[] = tableLines.slice(1).map(line => {
       const cols = line.split('|').map(c => c.trim());
       const obj: UnconfiguredOnu = {};
-      obj.olt = cols[1] || cols[2] || '';
-      obj.sn = (cols[2] || cols[3] || '').replace(/\[.*?\]/g, '').trim();
-      obj.pon = cols[3] || cols[4] || '';
-      obj.port = cols[4] || cols[5] || '';
-      obj.model = cols[5] || cols[6] || '';
+      // detect if first data column is a numeric index (e.g. '| 1 | OLT ...')
+      const maybeIndex = cols[1] || '';
+      const hasIndex = /^\d+$/.test(String(maybeIndex));
+      const off = hasIndex ? 1 : 0;
+
+      obj.olt = cols[1 + off] || cols[2 + off] || '';
+      obj.sn = (cols[2 + off] || cols[3 + off] || '').replace(/\[.*?\]/g, '').trim();
+      obj.pon = cols[3 + off] || cols[4 + off] || '';
+      obj.port = cols[4 + off] || cols[5 + off] || '';
+      obj.model = cols[5 + off] || cols[6 + off] || '';
       return obj;
     })
     // filter out placeholder rows like '| - | - | - | - | - | - |'
@@ -236,6 +242,20 @@ const parseUnconfiguredOnusFromMarkdown = (content: string): UnconfiguredOnu[] =
     return [];
   }
 };
+
+// Helper: unique by keya
+function uniqBy<T>(arr: T[], fn: (item: T) => string) {
+  const m = new Map<string, T>();
+  for (const it of arr) {
+    try {
+      const k = String(fn(it) ?? '');
+      if (!m.has(k)) m.set(k, it);
+    } catch {
+      // ignore
+    }
+  }
+  return Array.from(m.values());
+}
 
 // --- COMPONENTE: MODAL DE PROCESAMIENTO ---
 // Corrección: Usamos ProcessStep[] en lugar de any[]
@@ -443,6 +463,7 @@ export function ChatMessage({
   onVersionChange,
   actions,
   onActionSelect,
+  onReplaceMessage,
   onSubmitAuth,
   onSubmitWan,
   onSubmitAction,
@@ -452,6 +473,23 @@ export function ChatMessage({
   const { user } = useAuth();
   const authUser = user as { username?: string | null; displayName?: string | null; email?: string | null } | null;
   const isUser = role === 'user';
+
+  // --- NUEVO: REFERENCIA PARA SCROLL SUAVE ---
+  const messageRef = useRef<HTMLDivElement>(null);
+
+  // --- NUEVO: EFECTO DE SCROLL ---
+  useEffect(() => {
+    // Si es el último mensaje, hacemos scroll suave al INICIO del bloque
+    if (isLatest && messageRef.current) {
+      setTimeout(() => {
+        messageRef.current?.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start', // Esto alinea la parte superior del mensaje con el top de la vista
+          inline: 'nearest'
+        });
+      }, 150); // Pequeño delay para asegurar que el contenido renderizó
+    }
+  }, [isLatest, content]); 
 
   // Estados
   const [copied, setCopied] = useState(false);
@@ -547,17 +585,24 @@ export function ChatMessage({
   }, [actions]);
 
   const installations: InstallationEntry[] = useMemo(() => {
-    if (metadata?.installations && metadata.installations.length > 0) return metadata.installations;
+    if (metadata?.installations && metadata.installations.length > 0) {
+      return uniqBy(metadata.installations, (i) => String(i.id || (i.clientName + '|' + i.address)));
+    }
     if (!isUser && content.includes('|') && content.toLowerCase().includes('cliente')) {
-      return parseMarkdownTableToInstallations(content, actions, hasClientSelectActions);
+      const parsed = parseMarkdownTableToInstallations(content, actions, hasClientSelectActions);
+      return uniqBy(parsed, (i) => String(i.id || (i.clientName + '|' + i.address)));
     }
     return [];
   }, [metadata, content, isUser, actions, hasClientSelectActions]);
 
   const unconfiguredOnus = useMemo(() => {
     if (isUser) return [];
+    // Solo mostrar la tabla de Disponibilidad SmartOLT si el mensaje es refresh onu
+    const isRefreshOnu = content.toLowerCase().includes('refresh onu') || content.toLowerCase().includes('refresh onu-list');
+    if (isRefreshOnu) return [];
     const parsed = parseUnconfiguredOnusFromMarkdown(content);
-    return parsed;
+    // Deduplicate by SN/serial/label
+    return uniqBy(parsed, (o) => String((o.sn || o.serial || '').toString()).trim());
   }, [content, isUser]);
 
   const hasOnuTableInContent = useMemo(() => {
@@ -571,15 +616,18 @@ export function ChatMessage({
   
   const finalCleanText = useMemo(() => {
     if (isUser) return content;
-    
+    const isRefreshOnu = content.toLowerCase().includes('refresh onu') || content.toLowerCase().includes('refresh onu-list');
+    let cleanedContent = content;
     if (hasInstallationsTable || hasSmartoltTable || hasOnuTableInContent) {
-        const tableRegex = /^\|.*\|[\s\S]*?(\n(?![ \t]*\|)|$)/gm;
-        const cleaned = content.replace(tableRegex, '').trim();
-        return cleaned || (hasInstallationsTable ? "He encontrado las siguientes instalaciones:" : "");
+      const tableRegex = /^\|.*\|[\s\S]*?(\n(?![ \t]*\|)|$)/gm;
+      cleanedContent = cleanedContent.replace(tableRegex, '').trim();
     }
-    
-    return content;
-  }, [content, isUser, hasInstallationsTable, hasSmartoltTable]);
+    // Ocultar encabezado y bloque de 'ONUs sin autorizar' si es refresh onu
+    if (isRefreshOnu) {
+      cleanedContent = cleanedContent.replace(/ONUs?\s+sin\s+autorizar[\s\S]*?(?=Disponibilidad|$)/i, '').trim();
+    }
+    return cleanedContent || (hasInstallationsTable ? "He encontrado las siguientes instalaciones:" : "");
+  }, [content, isUser, hasInstallationsTable, hasSmartoltTable, hasOnuTableInContent]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -684,9 +732,25 @@ export function ChatMessage({
     return payload;
   };
 
+  // Decide whether to replace the current assistant message (refresh) or send a normal action
+  const invokeAction = (actionPayload?: string, value?: string, actionId?: string) => {
+    const resolved = resolvePayload(actionPayload, value);
+    if (!resolved) return;
+
+    const lowSource = ((actionId || actionPayload || value) || '').toString().toLowerCase();
+    const replacePattern = /refresh\s*onu|refresh\s*onu-list|refrescar\s*onu|refrescar\s*onus|refrescar\s*onu-list|^refresh/i;
+    const shouldReplace = replacePattern.test(lowSource) || (actionId || '').toLowerCase().includes('refresh');
+
+    if (shouldReplace && onReplaceMessage && messageId) {
+      onReplaceMessage(messageId, resolved);
+    } else {
+      onActionSelect?.(resolved);
+    }
+  };
+
   const handleOnuSelect = (onu: OnuEntry, olt: OltEntry) => {
     setSelectedOnu({ oltId: olt.oltId, board: onu.board, port: onu.port, ponType: onu.ponType, onuId: onu.id });
-    if (onu.actionPayload) onActionSelect?.(onu.actionPayload);
+    if (onu.actionPayload) invokeAction(onu.actionPayload, onu.label, onu.id);
   };
 
   const safeActions = useMemo(() => (Array.isArray(actions) ? actions.filter((a) => a?.type) : []), [actions]);
@@ -900,7 +964,10 @@ const handleBulkSubmit = async () => {
   const currentIdx = currentVersion ?? 0;
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/40' : ''} px-2 sm:px-3 py-2`}>
+    <div 
+      ref={messageRef} 
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-neutral-900/40' : ''} px-2 sm:px-3 py-2 scroll-mt-16`} // scroll-mt-16 da margen arriba
+    >
       <div className="w-full max-w-4xl flex gap-2 sm:gap-3 items-start">
         {!isUser && (
           <div className="hidden sm:flex mt-1 h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400" aria-label="Bot">
@@ -934,56 +1001,89 @@ const handleBulkSubmit = async () => {
                 {displayedContent}
                 {isTyping && <span className="inline-block w-1.5 h-4 align-middle bg-emerald-400 ml-1 animate-pulse rounded-sm" />}
 
-                {unconfiguredOnus.length > 0 && (
-                  <div className="mt-4 w-full flex justify-center">
-                    <div className="w-full max-w-[22rem] md:max-w-none">
-                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold mb-2">
-                        <span className="h-2 w-2 rounded-full bg-amber-500" /> ONUs sin autorizar
+                {/* Ocultar ONUs sin autorizar si es refresh onu */}
+                {unconfiguredOnus.length > 0 && !hasSmartoltTable && !(content.toLowerCase().includes('refresh onu') || content.toLowerCase().includes('refresh onu-list')) && (
+                  <div className="mt-4 w-full flex flex-col items-center md:items-stretch px-1 sm:px-0">
+                    <div className="w-full max-w-[22rem] md:max-w-none mx-auto space-y-4">
+                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" /> ONUs sin autorizar para intercambiar
                       </div>
-                      <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden shadow-sm">
-                      <div className="hidden md:grid grid-cols-12 px-4 py-2.5 text-[11px] uppercase text-neutral-500 border-b border-neutral-800/70 bg-neutral-950/30">
-                        <div className="col-span-2">OLT</div>
-                        <div className="col-span-3">SN</div>
-                        <div className="col-span-2 text-center">PON</div>
-                        <div className="col-span-2 text-center">Port</div>
-                        <div className="col-span-3">Modelo</div>
-                      </div>
-                      <div className="divide-y divide-neutral-800">
-                        {unconfiguredOnus.map((o: UnconfiguredOnu, idx: number) => {
-                          const sn = String(o.sn || o.serial || '').trim();
-                          const actionMatch = safeActions.find(a => String(a.label || '').trim() === sn || String(a.payload || '').includes(sn));
-                          return (
-                            <div key={idx} className="flex flex-col md:grid md:grid-cols-12 md:items-center px-3 sm:px-4 py-3 text-sm text-neutral-100 hover:bg-neutral-800/40 transition-colors gap-2 md:gap-0">
-                              <div className="md:col-span-2 font-mono text-xs text-neutral-500">{o.olt || '-'}</div>
-                              <div className="md:col-span-3 font-medium break-words">{sn || '-'}</div>
-                              <div className="md:col-span-2 text-center text-xs text-neutral-400">{o.pon || '-'}</div>
-                              <div className="md:col-span-2 text-center text-xs text-neutral-400">{o.port || '-'}</div>
-                              <div className="md:col-span-3 text-xs text-neutral-400 truncate">{o.model || '-'}</div>
-                              <div className="md:col-span-12 md:col-start-12 text-right mt-2 md:mt-0">
-                                <Button size="sm" onClick={() => {
-                                  if (actionMatch) {
-                                    onActionSelect?.(resolvePayload(actionMatch.payload, actionMatch.label));
-                                  } else if (sn) {
-                                    onActionSelect?.(`seleccionar onu ${sn}`);
-                                  }
-                                }} className="w-full md:w-auto h-9 md:h-8 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg">
-                                  Seleccionar
-                                </Button>
+
+                      <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-2 overflow-hidden shadow-sm w-full">
+                        <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 bg-neutral-800/50 text-[11px] font-bold text-neutral-500 uppercase">
+                          <div className="col-span-3">OLT / Label</div>
+                          <div className="col-span-2 text-center">PON</div>
+                          <div className="col-span-2 text-center">Port</div>
+                          <div className="col-span-3">Modelo</div>
+                          <div className="col-span-2 text-right">Acción</div>
+                        </div>
+
+                        <div className="divide-y divide-neutral-800">
+                          {unconfiguredOnus.map((o: UnconfiguredOnu, idx: number) => {
+                            const sn = String(o.sn || o.serial || '').trim();
+                            // hide entries without a serial/SN (no actionable ONU)
+                            if (!sn) return null;
+                            const label = sn || o.model || 'Sin etiqueta';
+                            const actionMatch = safeActions.find(a => String(a.label || '').trim() === sn || String(a.payload || '').includes(sn));
+                            return (
+                              <div key={idx} className="flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-2 px-3 sm:px-4 py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
+                                <div className="col-span-12 md:col-span-3 flex flex-col md:flex-row md:items-center gap-2">
+                                  <div className="flex flex-col">
+                                    <span className="font-medium text-neutral-200 truncate">{label}</span>
+                                    <span className="text-[11px] font-mono text-neutral-500 uppercase bg-neutral-900/50 px-1 rounded w-fit mt-0.5">{sn || 'Sin SN'}</span>
+                                  </div>
+                                  <span className="md:hidden px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 text-[10px] font-bold border border-amber-500/20">{o.olt || ''}</span>
+                                </div>
+
+                                <div className="col-span-12 md:col-span-2 flex items-center md:justify-center text-neutral-300">
+                                  <span className="font-mono bg-neutral-800/40 px-1.5 py-0.5 rounded">{o.pon || '-'}</span>
+                                </div>
+
+                                <div className="col-span-12 md:col-span-2 flex items-center md:justify-center text-neutral-300">
+                                  <span className="font-mono bg-neutral-800/40 px-1.5 py-0.5 rounded">{o.port || '-'}</span>
+                                </div>
+
+                                <div className="col-span-12 md:col-span-3 text-xs text-neutral-400 italic truncate flex items-center gap-2">
+                                  {o.model || 'N/A'}
+                                </div>
+
+                                <div className="col-span-12 md:col-span-2 text-right mt-1 md:mt-0">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      if (actionMatch) {
+                                        invokeAction(actionMatch.payload, actionMatch.label, actionMatch.id);
+                                      } else if (sn) {
+                                        // try to extract numeric OLT id from bracketed label (e.g. "... [3]")
+                                        const oltRaw = String(o.olt || '').trim();
+                                        const oltMatch = oltRaw.match(/\[(\d+)\]/);
+                                        const oltPart = oltMatch ? ` olt ${oltMatch[1]}` : (/^\d+$/.test(oltRaw) ? ` olt ${oltRaw}` : '');
+                                        const ponPart = o.pon ? ` pon ${o.pon}` : '';
+                                        const portPart = o.port ? ` port ${o.port}` : '';
+                                        const modelPart = o.model ? ` model ${o.model}` : '';
+                                        invokeAction(`seleccionar onu ${sn}${oltPart}${ponPart}${portPart}${modelPart}`, sn);
+                                      }
+                                    }}
+                                    disabled={disableActionButtons}
+                                    className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20 rounded-lg active:scale-95 transition-transform"
+                                  >
+                                    Seleccionar
+                                  </Button>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* If the assistant included an ONU table but parsing returned no rows, show a friendly notice */}
-                {hasOnuTableInContent && unconfiguredOnus.length === 0 && (
+                {/* If the assistant included an ONU table but parsing returned no rows, show a friendly notice, except on refresh onu */}
+                {hasOnuTableInContent && !hasSmartoltTable && unconfiguredOnus.length === 0 && !(content.toLowerCase().includes('refresh onu') || content.toLowerCase().includes('refresh onu-list')) && (
                   <div className="mt-4 w-full">
                     <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-300">
-                      <div className="font-semibold text-neutral-200 mb-1">ONUs sin autorizar</div>
+                      <div className="font-semibold text-neutral-200 mb-1">ONUs sin autorizar para intercambiar</div>
                       <div className="text-xs text-neutral-400">No se encontraron ONUs libres para asignar. Intenta refrescar o verifica en SmartOLT.</div>
                     </div>
                   </div>
@@ -992,13 +1092,13 @@ const handleBulkSubmit = async () => {
                 {imageDataUrl && (
                   <div className="mt-4 relative group/img w-full max-w-sm sm:max-w-md">
                     <div className="rounded-2xl border border-neutral-800 bg-neutral-900 shadow-xl transition-all hover:border-emerald-500/50 overflow-hidden">
-                       <ImagePreview 
-                         src={imageDataUrl}
-                         alt="Evidencia técnica"
-                         onClick={() => setIsZoomed(true)}
-                         onDownload={() => downloadImage(imageDataUrl)}
-                         className="h-auto max-h-[350px] object-cover"
-                       />
+                        <ImagePreview 
+                          src={imageDataUrl}
+                          alt="Evidencia técnica"
+                          onClick={() => setIsZoomed(true)}
+                          onDownload={() => downloadImage(imageDataUrl)}
+                          className="h-auto max-h-[350px] object-cover"
+                        />
                     </div>
                   </div>
                 )}
@@ -1042,7 +1142,7 @@ const handleBulkSubmit = async () => {
                             <div className="md:col-span-2 md:text-right mt-2 md:mt-0">
                               <Button 
                                 size="sm" 
-                                onClick={() => inst.actionPayload && onActionSelect?.(inst.actionPayload)} 
+                                onClick={() => inst.actionPayload && invokeAction(inst.actionPayload, inst.clientName)} 
                                 disabled={disableActionButtons}
                                 className="w-full md:w-auto h-9 md:h-7 text-xs font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-lg"
                               >
@@ -1061,12 +1161,12 @@ const handleBulkSubmit = async () => {
               {hasSmartoltTable && (
                 <div className="mt-4 w-full flex flex-col items-center md:items-stretch px-1 sm:px-0">
                   <div className="w-full max-w-[22rem] md:max-w-none mx-auto space-y-4">
-                     <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
+                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
                       <span className="h-2 w-2 rounded-full bg-emerald-500" /> Disponibilidad SmartOLT
                     </div>
                     {smartoltAvailability?.olts?.map((olt) => (
                       <div key={olt.oltId} className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-4 shadow-sm w-full">
-                         <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+                          <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                           <div className="flex items-center gap-2">
                              <Server className="size-4 text-emerald-600"/>
                              <div className="text-sm font-bold text-emerald-500 uppercase tracking-wider">
@@ -1143,7 +1243,7 @@ const handleBulkSubmit = async () => {
                   <div className="w-full flex justify-start">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full md:max-w-none">
                       {selectionButtonsToRender.map(a => (
-                        <Button key={a.id} size="sm" disabled={disableActionButtons} onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
+                        <Button key={a.id} size="sm" disabled={disableActionButtons} onClick={() => invokeAction(a.payload, a.label, a.id)} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
                           {a.label}
                         </Button>
                       ))}
@@ -1154,7 +1254,7 @@ const handleBulkSubmit = async () => {
                 {otherButtons.length > 0 && (
                   <div className="w-full flex justify-start">
                     <div className="flex flex-wrap gap-2 w-full md:max-w-none justify-start">
-                      {otherButtons.map(a => {
+                       {otherButtons.map(a => {
                          if (a.type === 'link' && a.url) {
                           const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
                           if (disableActionButtons) {
@@ -1177,8 +1277,8 @@ const handleBulkSubmit = async () => {
                             </a>
                           );
                         }
-                        return (
-                          <Button key={a.id} size="sm" disabled={disableActionButtons} onClick={() => onActionSelect?.(resolvePayload(a.payload, a.label))} className="h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white border border-neutral-700">
+                          return (
+                            <Button key={a.id} size="sm" disabled={disableActionButtons} onClick={() => invokeAction(a.payload, a.label, a.id)} className="h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white border border-neutral-700">
                             {a.label}
                           </Button>
                         );
