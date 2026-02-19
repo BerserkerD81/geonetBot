@@ -203,7 +203,15 @@ const parseMarkdownTableToInstallations = (content: string, actions?: ActionOpti
 const parseUnconfiguredOnusFromMarkdown = (content: string): UnconfiguredOnu[] => {
   try {
     const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
-    // fallback: look for header line containing OLT and SN
+
+    // If the message includes an explicit flow label (added to separate flows),
+    // only parse tables that are intended for "Cambio de ONU" flow.
+    const flowLine = lines.find(l => /^🔁\s*Flujo:/i.test(l));
+    const flow = flowLine ? flowLine.replace(/^🔁\s*Flujo:\s*/i, '').trim().toLowerCase() : '';
+    // If a flow label exists and it's NOT a change-ONU flow, skip parsing here.
+    if (flow && !/cambio\s*de\s*onu/i.test(flow)) return [];
+
+    // fallback: look for header line containing OLT and SN (after possible flow label)
     let hdrLine = lines.find(l => /olt\s*\|\s*sn/i.test(l) || /modelo\s*\|/i.test(l));
     if (!hdrLine) hdrLine = lines[0] || '';
 
@@ -607,6 +615,8 @@ export function ChatMessage({
 
   const hasOnuTableInContent = useMemo(() => {
     if (isUser) return false;
+    // If a flow label explicitly marks this as "Cambio de ONU", treat it as an ONU table.
+    if (/🔁\s*Flujo:\s*Cambio\s*de\s*ONU/i.test(content)) return true;
     return /\|\s*#\s*\|\s*OLT\s*\|\s*SN/i.test(content) || /onus sin autorizar/i.test(content) || /olt\s*\|\s*sn/i.test(content);
   }, [content, isUser]);
   
