@@ -74,17 +74,16 @@ const API_BASE = (() => {
   const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
   
   if (envApi && envApi.trim()) {
-    // CORRECCIÓN: Si empieza con "/" (ruta relativa) o "http", úsala tal cual.
     if (envApi.startsWith('/') || envApi.startsWith('http')) {
       return envApi;
     }
-    // Solo agrega protocolo si es un dominio a secas (ej: "localhost:3000")
     return `http://${envApi}`;
   }
   
   const { protocol, hostname } = window.location;
   return `${protocol}//${hostname}:3000`;
 })();
+
 // --- COMPONENTE PRINCIPAL ---
 
 function ChatApp() {
@@ -185,61 +184,48 @@ function ChatApp() {
 
   useEffect(() => {
     if (searchOpen) {
-      // Al abrir, bloqueamos el scroll del body
       document.body.style.overflow = 'hidden';
     } else {
-      // Al cerrar, restauramos el scroll normal
       document.body.style.overflow = 'unset';
     }
-
-    // Cleanup: seguridad por si el componente se desmonta con el modal abierto
     return () => {
       document.body.style.overflow = 'unset';
     };
   }, [searchOpen]);
-// -------------------------------------------------------------------------
-const loadSessionMessages = useCallback(async (sessionId: string, options?: { aroundId?: string; beforeId?: string }) => {
+
+  // -------------------------------------------------------------------------
+  const loadSessionMessages = useCallback(async (sessionId: string, options?: { aroundId?: string; beforeId?: string }) => {
     const { aroundId, beforeId } = options || {};
     
-    // 1. Buscamos el chat en el estado actual
     const targetChat = chats.find(c => c.id === sessionId);
     
-    // 2. Validaciones:
     if (!targetChat) return; 
     if (targetChat.isAdminHistory) return;
-    // Si ya está cargando datos (isLoadingMore), evitamos duplicar la petición (salvo si es un salto 'aroundId')
     if (targetChat.isLoadingMore && !aroundId) return;
-    // Si ya tiene mensajes y no estamos pidiendo nada especial, salimos
     if (targetChat.messagesLoaded && !aroundId && !beforeId) return;
 
-    // 3. UI Feedback
-    const isGlobalLoad = !beforeId; // Si no es scroll infinito, es carga fuerte
+    const isGlobalLoad = !beforeId; 
     if (isGlobalLoad) setLoadingMessages(true);
 
-    // Marcamos loading local
     setChats(prev => prev.map(c => c.id === sessionId ? { ...c, isLoadingMore: true } : c));
 
     try {
-      // Al agregar el segundo parámetro, new URL acepta rutas relativas
-const url = new URL(
-  `${API_BASE}/chat/sessions/${sessionId}/messages`, 
-  window.location.origin
-);
+      const url = new URL(
+        `${API_BASE}/chat/sessions/${sessionId}/messages`, 
+        window.location.origin
+      );
 
       if (aroundId) {
-        // SOLUCIÓN AL ERROR: Convertimos a String explícitamente antes de replace
         const val = String(aroundId);
         const cleanId = val.replace('msg-', '');
         if (cleanId && cleanId !== 'undefined') url.searchParams.append('aroundId', cleanId);
       }
       if (beforeId) {
-        // SOLUCIÓN AL ERROR: Convertimos a String explícitamente
         const val = String(beforeId);
         const cleanId = val.replace('msg-', '');
         if (cleanId && cleanId !== 'undefined') url.searchParams.append('beforeId', cleanId);
       }
 
-      // 5. Petición
       const res = await fetch(url.toString(), { credentials: 'include' });
       
       if (!res.ok) {
@@ -248,7 +234,6 @@ const url = new URL(
 
       const data = await res.json();
       
-      // 6. Mapeo
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const loadedMessages: Message[] = (data.messages || []).map((m: any) => ({
         id: `msg-${m.id}`, 
@@ -260,22 +245,18 @@ const url = new URL(
         metadata: m.metadata
       }));
 
-      // 7. Actualización de Estado
       setChats(prev => prev.map(c => {
         if (c.id === sessionId) {
           let newMessages = c.messages;
 
-          // ESTRATEGIA A: Salto de Contexto (Búsqueda) -> Reemplazo total
           if (aroundId) {
               newMessages = loadedMessages;
           } 
-          // ESTRATEGIA B: Scroll Infinito (Hacia arriba) -> Agregar al inicio
           else if (beforeId) {
               const existingIds = new Set(c.messages.map(m => m.id));
               const uniqueNew = loadedMessages.filter(m => !existingIds.has(m.id));
               newMessages = [...uniqueNew, ...c.messages];
           } 
-          // ESTRATEGIA C: Carga Inicial -> Llenar
           else {
               newMessages = loadedMessages;
           }
@@ -304,18 +285,17 @@ const url = new URL(
       if (isGlobalLoad) setLoadingMessages(false);
     }
   }, [chats]);
-// -------------------------------------------------------------------------
-// 3. SELECCIÓN DE CHAT Y SCROLL (CON PLACEHOLDER PARA BÚSQUEDA)
-// -------------------------------------------------------------------------
-const handleSelectChat = async (id: string, messageId?: string, metadata?: { title: string, timestamp: string }) => {
-  // Navega a la URL del chat
-  if (id && location.pathname !== `/chat/${id}`) {
-    navigate(`/chat/${id}`);
-  }
-    // 1. Verificar si el chat ya existe en memoria
+
+  // -------------------------------------------------------------------------
+  // 3. SELECCIÓN DE CHAT Y SCROLL (CON PLACEHOLDER PARA BÚSQUEDA)
+  // -------------------------------------------------------------------------
+  const handleSelectChat = async (id: string, messageId?: string, metadata?: { title: string, timestamp: string }) => {
+    if (id && location.pathname !== `/chat/${id}`) {
+      navigate(`/chat/${id}`);
+    }
+    
     let targetChat = chats.find(c => c.id === id);
 
-    // 2. Si NO existe (ej. resultado de búsqueda antiguo), creamos un placeholder
     if (!targetChat && metadata) {
         const placeholderChat: Chat = {
             id: id,
@@ -329,45 +309,38 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
             isLoadingMore: true 
         };
         
-        // Lo inyectamos al inicio de la lista visualmente
         setChats(prev => [placeholderChat, ...prev]);
         targetChat = placeholderChat; 
     }
 
-    // 3. Activar visualmente
     setActiveChat(id);
     
     if (window.innerWidth < 768) {
       setSidebarCollapsed(true);
     }
 
-    // 4. Cargar los datos
     if (messageId) {
-        // MODO BÚSQUEDA: Cargar contexto alrededor del mensaje
         setLoadingMessages(true);
         try {
-            // Aquí llamamos a la función corregida de arriba
             await loadSessionMessages(id, { aroundId: messageId });
             
-            // Hacemos el scroll visual
             setTimeout(() => {
                 setScrollToMessageId(messageId);
                 setScrollRequestNonce((n) => n + 1);
                 setHighlightedMessageId(messageId);
-            }, 500); // Un poco más de tiempo para asegurar renderizado
+            }, 500); 
         } finally {
             setLoadingMessages(false);
         }
     } else {
-        // MODO NORMAL: Cargar últimos mensajes si está vacío
         if (!targetChat?.messagesLoaded) {
             await loadSessionMessages(id);
         }
     }
     
-      void refreshChatTitles();
+    void refreshChatTitles();
     setAnimatingMessageId(null);
-};
+  };
 
   const handleNewChat = useCallback(() => {
     setActiveChat(null);
@@ -415,7 +388,6 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
         return;
       }
 
-      // userMessage may be null for refresh actions; only construct when present
       const userMsg: Message | undefined = data.userMessage
         ? {
             id: `m${data.userMessage.id || Date.now()}`,
@@ -439,7 +411,6 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
       setAnimatingMessageId(assistantMsg.id);
       const returnedSessionId = String(data.sessionId);
 
-      // If backend signaled this is an update to the last assistant message, apply an update
       const isUpdate = Boolean(data.assistantMessage?.isUpdate);
 
       if (currentSessionId) {
@@ -447,10 +418,8 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
           prev.map((chat) => {
             if (chat.id !== currentSessionId) return chat;
 
-            // If update: find last assistant message and replace content/actions/metadata
             if (isUpdate) {
               const msgs = [...chat.messages];
-              // Find index of last assistant message
               let idx = -1;
               for (let i = msgs.length - 1; i >= 0; i--) {
                 if (msgs[i].role === 'assistant') { idx = i; break; }
@@ -459,17 +428,14 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
                 const updated = { ...msgs[idx], content: assistantMsg.content, actions: assistantMsg.actions, metadata: assistantMsg.metadata, timestamp: assistantMsg.timestamp };
                 msgs[idx] = updated;
               } else {
-                // Fallback: append assistant message
                 msgs.push(assistantMsg);
               }
 
-              // Only append user message if present and not a refresh
               if (userMsg) msgs.push(userMsg);
 
               return { ...chat, messages: msgs, preview: (userMsg ? userMsg.content : assistantMsg.content).substring(0, 50), timestamp: new Date().toLocaleTimeString() };
             }
 
-            // Normal behavior: append user then assistant
             const newMessages = [...chat.messages];
             if (userMsg) newMessages.push(userMsg);
             newMessages.push(assistantMsg);
@@ -507,13 +473,11 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
   // -------------------------------------------------------------------------
   // 5. ACCIONES ESPECÍFICAS
   // -------------------------------------------------------------------------
-  
   const handleActionSelect = (payload: string) => {
     if (!payload.trim()) return;
     handleSendMessage(payload.trim());
   };
 
-  // Replace an existing assistant message with a refreshed response
   const handleReplaceMessage = async (messageId: string, payload: string) => {
     if (!payload.trim()) return;
     if (requestInFlightRef.current) return;
@@ -565,8 +529,6 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
             const msgs = [...chat.messages];
             const idx = msgs.findIndex(m => m.id === messageId);
             if (idx >= 0) {
-              // If backend returned the same payload as content (echo), don't overwrite
-              // the existing formatted content — just update actions/metadata/timestamp.
               const shouldKeepContent = String(assistantMsg.content || '').trim() === String(payload || '').trim();
               msgs[idx] = {
                 ...msgs[idx],
@@ -576,7 +538,6 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
                 timestamp: assistantMsg.timestamp,
               };
             } else {
-              // fallback: replace last assistant
               let lastIdx = -1;
               for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'assistant') { lastIdx = i; break; }
               if (lastIdx >= 0) msgs[lastIdx] = { ...msgs[lastIdx], content: assistantMsg.content, actions: assistantMsg.actions, metadata: assistantMsg.metadata, timestamp: assistantMsg.timestamp };
@@ -911,9 +872,10 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
     }
   }, [isAdmin]);
 
-  // Precarga Admin
+  const adminPreloadDoneRef = useRef(false);
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin || adminPreloadDoneRef.current) return;
+    adminPreloadDoneRef.current = true;
     const preloadAllHistories = async () => {
       try {
         const res = await fetch(`${API_BASE}/admin/users`, { credentials: 'include' });
@@ -922,30 +884,56 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
         const users = (data.users ?? []) as { id: number; email: string; name?: string }[];
         await Promise.all(users.map((u) => openUserHistoryAsChat(u, { focus: false, closePanel: false })));
       } catch {
-        // Ignorar errores de precarga
       }
     };
     void preloadAllHistories();
   }, [isAdmin, openUserHistoryAsChat]);
 
   // -------------------------------------------------------------------------
-  // 7. EFECTOS UI: SCROLL INFINITO Y AUTO-SCROLL
+  // 7. EFECTOS UI: SCROLL INFINITO, AUTO-SCROLL Y SINCRONIZACIÓN DE RUTAS
   // -------------------------------------------------------------------------
   
-  // Sincroniza el chat activo con la URL
+  // 1. Sincroniza el chat activo con la URL (incluso al recargar la página)
   useEffect(() => {
     if (sessionId && sessionId !== activeChat) {
-      const exists = chats.some((chat) => chat.id === sessionId);
-      if (exists) {
-        setActiveChat(sessionId);
+      setActiveChat(sessionId);
+      
+      // Inyectamos un "placeholder" en la lista temporalmente.
+      setChats((prev) => {
+        if (!prev.some((c) => c.id === sessionId)) {
+          return [{
+            id: sessionId,
+            title: 'Cargando conversación...',
+            timestamp: '...',
+            preview: 'Recuperando historial...',
+            messages: [],
+            messagesLoaded: false,
+            isAdminHistory: false,
+            hasMoreMessages: true,
+            isLoadingMore: false 
+          }, ...prev];
+        }
+        return prev;
+      });
+    }
+    
+    // Si regresamos a la raíz, limpiar el chat activo
+    if (!sessionId && activeChat) {
+      setActiveChat(null);
+    }
+  }, [sessionId, activeChat]);
+
+  // 2. Dispara la carga de mensajes automáticamente si entramos directo por URL
+  useEffect(() => {
+    if (activeChat) {
+      const current = chats.find((c) => c.id === activeChat);
+      
+      // Si el chat existe pero no hemos cargado sus mensajes ni estamos en proceso:
+      if (current && !current.messagesLoaded && !current.isLoadingMore && !current.isAdminHistory) {
+        loadSessionMessages(activeChat);
       }
     }
-    // Si no hay sessionId y hay un chat activo, navega a la raíz
-    if (!sessionId && activeChat) {
-      navigate('/');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, chats]);
+  }, [activeChat, chats, loadSessionMessages]);
 
   const currentChat = chats.find((chat) => chat.id === activeChat);
 
@@ -956,12 +944,10 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
 
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting) {
-            // Usuario llegó arriba: cargar mensajes anteriores
             const oldestMessage = chat.messages[0];
             if (oldestMessage) {
-                const oldestId = oldestMessage.id.replace('msg-', ''); // ID limpio para backend
+                const oldestId = oldestMessage.id.replace('msg-', ''); 
                 
-                // Guardar altura actual antes de cargar para restaurar posición visual
                 if (scrollViewportRef.current) {
                     const scrollContainer = scrollViewportRef.current.querySelector('[data-radix-scroll-area-viewport]');
                     if (scrollContainer) {
@@ -992,11 +978,9 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
              const oldHeight = (scrollContainer as any)._savedScrollHeight;
              const diff = newHeight - oldHeight;
              
-             // Ajustar scroll para que el usuario se quede visualmente "en el mismo mensaje"
              // eslint-disable-next-line @typescript-eslint/no-explicit-any
              scrollContainer.scrollTop = diff + ((scrollContainer as any)._savedScrollTop || 0);
              
-             // Limpiar variables temporales
              // eslint-disable-next-line @typescript-eslint/no-explicit-any
              delete (scrollContainer as any)._savedScrollHeight;
              // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1044,6 +1028,7 @@ const handleSelectChat = async (id: string, messageId?: string, metadata?: { tit
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
+  
   // Scroll a mensaje específico (Búsqueda)
   useEffect(() => {
     if (!scrollToMessageId) return;
