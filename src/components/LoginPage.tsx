@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
@@ -7,6 +8,7 @@ import { Label } from './ui/label';
 import { Bot, Lock, Mail, AlertCircle, Loader2, ArrowLeft, ShieldCheck } from 'lucide-react';
 
 export function LoginPage() {
+    const [showPassword, setShowPassword] = useState(false);
   const { login, setup2fa, verify2faSetup, verify2faLogin } = useAuth();
   
   const [email, setEmail] = useState('');
@@ -148,14 +150,23 @@ export function LoginPage() {
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-neutral-600" />
                       <Input
                         id="password"
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="pl-10 bg-neutral-950 border-neutral-800 text-white focus:border-emerald-500/50 h-11 transition-all"
+                        className="pl-10 pr-10 bg-neutral-950 border-neutral-800 text-white focus:border-emerald-500/50 h-11 transition-all"
                         placeholder="••••••••"
                         required
                         disabled={isLoading}
                       />
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-600 hover:text-neutral-400 focus:outline-none"
+                        aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      >
+                        {showPassword ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+                      </button>
                     </div>
                   </div>
                 </div>
