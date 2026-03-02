@@ -5,11 +5,18 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 
 const API_BASE = (() => {
   const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
-  if (envApi && envApi.trim()) {
-    return envApi.startsWith('http') ? envApi : `http://${envApi}`;
+  const raw = (envApi || '').trim();
+  if (raw) {
+    if (raw.startsWith('/')) return raw;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    if (raw === 'api') return '/api';
+    if (raw.startsWith('api/')) return `/${raw}`;
+    if (raw.includes('.') || raw.includes(':') || raw === 'localhost') {
+      return `${window.location.protocol}//${raw}`;
+    }
+    return `/${raw}`;
   }
-  const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:3000`;
+  return '/api';
 })();
 
 interface Message {
@@ -56,6 +63,9 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
   const [selectedIndex, setSelectedIndex] = useState(0);
   
   const inputRef = useRef<HTMLInputElement>(null);
+  const serverSearchAbortRef = useRef<AbortController | null>(null);
+  const serverCacheRef = useRef<Map<string, { at: number; results: SearchResult[] }>>(new Map());
+  const rateLimitUntilRef = useRef(0);
 
   // 1. Focus al abrir
   useEffect(() => {
@@ -69,6 +79,7 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
     const q = query.trim().toLowerCase();
 
     if (q.length < 2) {
+      serverSearchAbortRef.current?.abort();
       setResults([]);
       setSelectedIndex(0);
       setIsSearchingServer(false);
@@ -109,8 +120,31 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
     setResults(localResults);
     setSelectedIndex(0);
 
-    // Búsqueda Servidor (Debounced)
+    // Búsqueda Servidor (Debounced + Abort + Cache + Cooldown 429)
     const serverTimer = setTimeout(async () => {
+      if (q.length < 3) return;
+      if (Date.now() < rateLimitUntilRef.current) return;
+
+      const cacheKey = `${isAdmin ? 'admin' : 'user'}:${q}`;
+      const cached = serverCacheRef.current.get(cacheKey);
+      if (cached && Date.now() - cached.at < 20000) {
+        const mergedMap = new Map<string, SearchResult>();
+        localResults.forEach((r) => {
+          const key = `${r.chatId}-${r.messageId || 'title'}`;
+          mergedMap.set(key, r);
+        });
+        cached.results.forEach((r) => {
+          const key = `${r.chatId}-${r.messageId || 'title'}`;
+          if (!mergedMap.has(key)) mergedMap.set(key, { ...r, source: 'server' });
+        });
+        setResults(Array.from(mergedMap.values()));
+        return;
+      }
+
+      serverSearchAbortRef.current?.abort();
+      const controller = new AbortController();
+      serverSearchAbortRef.current = controller;
+
       setIsSearchingServer(true);
       try {
         const params = new URLSearchParams({ query: q });
@@ -118,34 +152,49 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
 
         const res = await fetch(`${API_BASE}/chat/search?${params.toString()}`, {
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal
         });
+
+        if (res.status === 429) {
+          const retryAfterHeader = Number(res.headers.get('retry-after') || '4');
+          const retryAfterSeconds = Number.isFinite(retryAfterHeader) ? retryAfterHeader : 4;
+          rateLimitUntilRef.current = Date.now() + Math.max(3, retryAfterSeconds) * 1000;
+          return;
+        }
 
         if (res.ok) {
           const data = await res.json();
           const serverData = (data.results || []) as SearchResult[];
-          
+          serverCacheRef.current.set(cacheKey, { at: Date.now(), results: serverData });
+
           const mergedMap = new Map<string, SearchResult>();
-          localResults.forEach(r => {
+          localResults.forEach((r) => {
             const key = `${r.chatId}-${r.messageId || 'title'}`;
             mergedMap.set(key, r);
           });
-          serverData.forEach(r => {
-             const key = `${r.chatId}-${r.messageId || 'title'}`;
-             if (!mergedMap.has(key)) {
-               mergedMap.set(key, { ...r, source: 'server' });
-             }
+          serverData.forEach((r) => {
+            const key = `${r.chatId}-${r.messageId || 'title'}`;
+            if (!mergedMap.has(key)) {
+              mergedMap.set(key, { ...r, source: 'server' });
+            }
           });
           setResults(Array.from(mergedMap.values()));
         }
       } catch (err) {
-        console.error("Error searching server", err);
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          console.error("Error searching server", err);
+        }
       } finally {
-        setIsSearchingServer(false);
+        if (!controller.signal.aborted) {
+          setIsSearchingServer(false);
+        }
       }
-    }, 500);
+    }, 700);
 
-    return () => clearTimeout(serverTimer);
+    return () => {
+      clearTimeout(serverTimer);
+    };
   }, [query, chats, isAdmin]);
 
   // Agrupación

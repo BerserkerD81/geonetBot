@@ -2,14 +2,14 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { 
   Bot, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
   MapPin, Maximize2, Download, Eye, EyeOff, X, ImageOff, Loader2,
-  Server, HardDrive, Network, Lock, Settings2, CheckCircle2, Circle
+  Server, HardDrive, Network, Lock
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { useAuth } from '../contexts/AuthContext';
+import { ProcessingModal } from './ProcessingModal';
 
 // --- CONSTANTES DE CONFIGURACIÓN DEL FORMULARIO ---
 const HIDDEN_FIELDS = ['auth-olt_id', 'auth-pon_type', 'auth-board', 'auth-onu_mode', 'auth-port'];
@@ -17,13 +17,6 @@ const READ_ONLY_FIELDS = ['auth-name', 'auth-sn'];
 const AUTO_SELECT_FIELDS = ['auth-onu_type', 'auth-vlan', 'auth-zone', 'auth-speed'];
 
 // --- TIPOS ---
-
-// Tipo explícito para los pasos del proceso
-type ProcessStep = {
-  id: string;
-  label: string;
-  status: 'pending' | 'loading' | 'complete' | 'error';
-};
 
 type OnuEntry = {
   id: string;
@@ -112,7 +105,7 @@ interface ChatMessageProps {
   actions?: ActionOption[];
   onActionSelect?: (payload: string) => void;
   onReplaceMessage?: (messageId: string, payload: string) => void;
-  onSubmitAuth?: (collected: Record<string, string>) => void | Promise<void>;
+  onSubmitAuth?: (collected: Record<string, string>) => boolean | void | Promise<boolean | void>;
   onSubmitWan?: (collected: Record<string, string>) => void | Promise<void>;
   onSubmitAction?: (payload: string, collected: Record<string, string>) => void | Promise<void>;
   highlighted?: boolean;
@@ -256,60 +249,7 @@ function uniqBy<T>(arr: T[], fn: (item: T) => string) {
 
 // --- COMPONENTE: MODAL DE PROCESAMIENTO ---
 // Corrección: Usamos ProcessStep[] en lugar de any[]
-function ProcessingModal({ isOpen, steps }: { isOpen: boolean; steps: ProcessStep[] }) {
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md px-4"
-        >
-          <motion.div
-            initial={{ scale: 0.9, y: 20 }}
-            animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-neutral-900 border border-neutral-800 p-8 rounded-3xl shadow-2xl max-w-sm w-full"
-          >
-            <div className="flex flex-col items-center text-center mb-8">
-              <div className="h-16 w-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mb-4 text-emerald-500">
-                <Settings2 className="animate-spin size-8" />
-              </div>
-              <h3 className="text-xl font-bold text-white">Configurando Acceso</h3>
-              <p className="text-neutral-500 text-sm mt-1">Sincronizando con SmartOLT y Geonet</p>
-            </div>
 
-            <div className="space-y-5">
-              {steps.map((step) => (
-                <motion.div 
-                  key={step.id} 
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="flex items-center gap-4"
-                >
-                  {step.status === 'loading' ? (
-                    <Loader2 className="size-5 text-emerald-500 animate-spin" />
-                  ) : step.status === 'complete' ? (
-                    <CheckCircle2 className="size-5 text-emerald-500" />
-                  ) : (
-                    <Circle className="size-5 text-neutral-700" />
-                  )}
-                  <span className={`text-sm font-medium transition-colors ${
-                    step.status === 'loading' ? 'text-white' : 
-                    step.status === 'complete' ? 'text-neutral-400' : 'text-neutral-600'
-                  }`}>
-                    {step.label}
-                  </span>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
 
 // --- COMPONENTES AUXILIARES ---
 function SearchableSelect({
@@ -503,6 +443,7 @@ export function ChatMessage({
   const [wifiError, setWifiError] = useState<string | null>(null);
   const [showWifiPass, setShowWifiPass] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitInFlightRef = useRef(false);
   
   // Estado para la animación
   const [displayedContent, setDisplayedContent] = useState('');
@@ -510,13 +451,9 @@ export function ChatMessage({
 
   const disableActionButtons = disableActions || (!isUser && isLatest && (isAwaitingResponse || isSubmitting));
 
-  // Estados de Procesamiento (Modal) - Corrección: Tipado explícito
+  // Estado de procesamiento para el modal
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processSteps, setProcessSteps] = useState<ProcessStep[]>([
-    { id: 'auth', label: 'Validando en SmartOLT', status: 'pending' },
-    { id: 'wan', label: 'Provisionando servicio WAN', status: 'pending' },
-    { id: 'geonet', label: 'Registrando en Geonet/WispHub', status: 'pending' }
-  ]);
+  const [processingStatus, setProcessingStatus] = useState<'loading' | 'success' | 'error'>('loading');
 
   // --- LÓGICA DE INICIALIZACIÓN Y AUTO-FILL ---
   
@@ -798,7 +735,8 @@ export function ChatMessage({
     .filter(a => !(hasInstallationsTable && hasClientSelectActions && (a.id.startsWith('select-client-') || (a.payload || '').toLowerCase().includes('seleccionar cliente'))));
   
 const handleBulkSubmit = async () => {
-  if (disableActionButtons) return;
+  if (disableActionButtons || submitInFlightRef.current) return;
+  submitInFlightRef.current = true;
   setIsSubmitting(true);
 
   try {
@@ -824,13 +762,8 @@ const handleBulkSubmit = async () => {
 
     // 3. Preparación del Modal para flujo de Autorización
     if (isAuth) {
+      setProcessingStatus('loading');
       setIsProcessing(true);
-      // Estado inicial: El primero "cargando", los demás "pendientes"
-      setProcessSteps([
-        { id: 'auth', label: 'Validando en SmartOLT', status: 'loading' },
-        { id: 'wan', label: 'Provisionando servicio WAN', status: 'pending' },
-        { id: 'geonet', label: 'Registrando en Geonet/WispHub', status: 'pending' }
-      ]);
     }
 
     // 4. Recolección de Datos (Inputs + ONU Seleccionada)
@@ -889,24 +822,13 @@ const handleBulkSubmit = async () => {
         
         // PASO CRÍTICO: Esperar a que el backend termine el proceso real.
         // El modal se queda en estado "loading" en el primer paso mientras esto ocurre.
-        await onSubmitAuth?.(collected);
-        
-        // --- ZONA DE ÉXITO ---
-        // Si la línea de arriba no lanza error, procedemos a mostrar los ticks verdes secuencialmente.
-        
-        // 1. Marcar Auth como completado
-        setProcessSteps(prev => prev.map(s => s.id === 'auth' ? { ...s, status: 'complete' } : s));
-        await new Promise(r => setTimeout(r, 300)); // Pausa visual
-        
-        // 2. Marcar Wan como completado (simulación visual de pasos rápidos)
-        setProcessSteps(prev => prev.map(s => s.id === 'wan' ? { ...s, status: 'complete' } : s));
-        await new Promise(r => setTimeout(r, 300)); 
-        
-        // 3. Marcar Geonet como completado
-        setProcessSteps(prev => prev.map(s => ({ ...s, status: 'complete' })));
-        await new Promise(r => setTimeout(r, 600)); // Pausa final para ver todo verde
-        
-        // Cerrar modal
+        const authResult = await onSubmitAuth?.(collected);
+        if (authResult === false) {
+          throw new Error('Auth submission failed');
+        }
+
+        setProcessingStatus('success');
+        await new Promise((resolve) => setTimeout(resolve, 900));
         setIsProcessing(false);
 
       } 
@@ -925,7 +847,10 @@ const handleBulkSubmit = async () => {
       } 
       else {
         // D) DEFAULT
-        await onSubmitAuth?.(collected);
+        const defaultAuthResult = await onSubmitAuth?.(collected);
+        if (defaultAuthResult === false) {
+          throw new Error('Auth submission failed');
+        }
       }
 
     } catch (e) {
@@ -933,20 +858,14 @@ const handleBulkSubmit = async () => {
 
       // --- ZONA DE ERROR (SOLO PARA AUTH) ---
       if (isAuth) {
-        // Buscamos cuál paso se quedó cargando y lo marcamos como ERROR (X Roja)
-        setProcessSteps(prev => prev.map(s => 
-          s.status === 'loading' ? { ...s, status: 'error' } : s
-        ));
-
-        // Importante: Esperamos 2.5 segundos manteniendo el modal abierto
-        // para que el usuario pueda ver la X roja y leer "Falló la operación".
-        await new Promise(r => setTimeout(r, 2500));
-        
+        setProcessingStatus('error');
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         setIsProcessing(false);
       }
       // Nota: Para otros flujos (Wifi/Wan) podrías poner un toast de error aquí si quisieras.
     }
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -1383,7 +1302,7 @@ const handleBulkSubmit = async () => {
       </div>
 
       {/* --- MODAL PROCESAMIENTO --- */}
-      <ProcessingModal isOpen={isProcessing} steps={processSteps} />
+      <ProcessingModal isOpen={isProcessing} status={processingStatus} />
 
       {/* --- MODAL ZOOM --- */}
       {isZoomed && imageDataUrl && (

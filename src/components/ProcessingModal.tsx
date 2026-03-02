@@ -1,14 +1,39 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, Circle, ServerCog, XCircle } from 'lucide-react';
+import { Check, Wifi, X } from 'lucide-react';
 
-// 1. Agregamos 'error' al tipo
-interface Step {
-  id: string;
-  label: string;
-  status: 'pending' | 'loading' | 'complete' | 'error'; 
-}
+type ProcessingState = 'loading' | 'success' | 'error';
 
-export function ProcessingModal({ isOpen, steps }: { isOpen: boolean; steps: Step[] }) {
+export function ProcessingModal({ isOpen, status = 'loading' }: { isOpen: boolean; status?: ProcessingState }) {
+  const isLoading = status === 'loading';
+  const isSuccess = status === 'success';
+  const isError = status === 'error';
+
+  const accentClass = isSuccess
+    ? 'from-emerald-400 to-green-500'
+    : isError
+      ? 'from-rose-400 to-red-500'
+      : 'from-orange-400 to-amber-500';
+
+  const arcColor = isSuccess
+    ? 'border-emerald-500'
+    : isError
+      ? 'border-red-500'
+      : 'border-orange-500';
+
+  const arcBaseColor = isSuccess
+    ? 'border-emerald-200'
+    : isError
+      ? 'border-red-200'
+      : 'border-orange-200';
+
+  const titleClass = isSuccess ? 'text-emerald-700' : isError ? 'text-red-700' : 'text-blue-800';
+  const textClass = isSuccess ? 'text-emerald-600/95' : isError ? 'text-red-600/95' : 'text-blue-600/95';
+  const glowClass = isSuccess
+    ? 'shadow-[0_0_24px_rgba(16,185,129,0.35)]'
+    : isError
+      ? 'shadow-[0_0_24px_rgba(239,68,68,0.35)]'
+      : 'shadow-[0_0_22px_rgba(249,115,22,0.28)]';
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -25,76 +50,82 @@ export function ProcessingModal({ isOpen, steps }: { isOpen: boolean; steps: Ste
             exit={{ scale: 0.96, opacity: 0, y: 12 }}
             className="bg-white border border-gray-200 p-6 md:p-8 rounded-2xl shadow-2xl shadow-gray-900/10 max-w-sm w-full relative overflow-hidden"
           >
-            {/* Top accent bar */}
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
-            
-            {/* Error ambient */}
-            {steps.some(s => s.status === 'error') && (
-               <div className="absolute -top-10 -right-10 w-32 h-32 bg-red-500/8 rounded-full blur-3xl transition-colors duration-500" />
-            )}
+            <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${accentClass}`} />
 
-            <div className="flex flex-col items-center text-center mb-7 relative z-10">
-              <div className="h-14 w-14 bg-gray-50 rounded-2xl flex items-center justify-center mb-4 border border-gray-200 shadow-sm">
-                <ServerCog className="text-emerald-500 size-7" />
+            <div className="flex flex-col items-center text-center gap-6 relative z-10">
+              <div className="relative h-36 w-40 flex items-end justify-center" aria-label="Cargando">
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-16">
+                  <motion.div
+                    className={`rounded-t-full border-t-4 border-x-4 border-b-0 ${arcBaseColor}`}
+                    style={{ width: 108, height: 64 }}
+                    animate={isLoading ? { opacity: [0.3, 1, 0.3] } : { opacity: 1 }}
+                    transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut', delay: 0 }}
+                  />
+                  <motion.div
+                    className={`absolute left-1/2 -translate-x-1/2 bottom-0 rounded-t-full border-t-4 border-x-4 border-b-0 ${arcBaseColor}`}
+                    style={{ width: 82, height: 50 }}
+                    animate={isLoading ? { opacity: [0.25, 1, 0.25] } : { opacity: 1 }}
+                    transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut', delay: 0.45 }}
+                  />
+                  <motion.div
+                    className={`absolute left-1/2 -translate-x-1/2 bottom-0 rounded-t-full border-t-4 border-x-4 border-b-0 ${arcColor} ${glowClass}`}
+                    style={{ width: 56, height: 34 }}
+                    animate={isLoading ? { opacity: [0.25, 1, 0.25] } : { opacity: 1 }}
+                    transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut', delay: 0.9 }}
+                  />
+                </div>
+
+                <motion.div
+                  className="absolute left-1/2 -translate-x-1/2 bottom-16 rounded-full"
+                  style={{ width: 14, height: 14, backgroundColor: isSuccess ? '#10b981' : isError ? '#ef4444' : '#f97316' }}
+                  animate={isLoading ? { scale: [1, 1.2, 1], opacity: [0.8, 1, 0.8] } : { scale: 1, opacity: 1 }}
+                  transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
+                />
+
+                <div className="relative h-16 w-24 rounded-2xl bg-gradient-to-b from-slate-100 to-slate-200 border border-slate-300 flex items-center justify-center shadow-sm">
+                  <div className="absolute -top-6 left-4 h-6 w-[3px] rounded-full bg-slate-300" />
+                  <div className="absolute -top-6 right-4 h-6 w-[3px] rounded-full bg-slate-300" />
+                  <Wifi className="absolute top-2 size-4 text-slate-400" />
+
+                  {isError ? (
+                    <X className="size-6 text-red-600" />
+                  ) : isSuccess ? (
+                    <Check className="size-6 text-emerald-600" />
+                  ) : (
+                    <motion.div
+                      className={`h-2.5 w-2.5 rounded-full ${isLoading ? 'bg-orange-500' : isSuccess ? 'bg-emerald-500' : 'bg-red-500'}`}
+                      animate={{ scale: [1, 1.2, 1], opacity: [0.9, 1, 0.9] }}
+                      transition={{ repeat: Infinity, duration: 1.1, ease: 'easeInOut' }}
+                    />
+                  )}
+
+                  <div className="absolute bottom-2 left-3 flex items-center gap-1.5">
+                    {[0, 1, 2].map((lightIndex) => (
+                      <motion.span
+                        key={lightIndex}
+                        className={`h-1.5 w-1.5 rounded-full ${isError ? 'bg-red-400' : isSuccess ? 'bg-emerald-400' : 'bg-orange-400'}`}
+                        animate={isLoading ? { opacity: [0.25, 1, 0.25] } : { opacity: 1 }}
+                        transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut', delay: lightIndex * 0.22 }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="absolute bottom-3 h-1 w-24 rounded-full bg-slate-200" />
               </div>
-              <h3 className="text-base font-semibold text-gray-900 tracking-tight">Procesando solicitud</h3>
-              <p className="text-xs text-gray-400 mt-1">Esto puede tomar unos segundos…</p>
-            </div>
 
-            <div className="space-y-2 relative z-10">
-              {steps.map((step, index) => {
-                const isActive = step.status === 'loading';
-                const isComplete = step.status === 'complete';
-                const isError = step.status === 'error';
-
-                return (
-                  <motion.div 
-                    key={step.id} 
-                    layout
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.08 }}
-                    className={`flex items-center gap-3 p-3 rounded-xl transition-colors duration-300 border ${
-                      isActive  ? 'bg-emerald-50  border-emerald-200/80' : 
-                      isError   ? 'bg-red-50      border-red-200/80' :
-                      isComplete? 'bg-gray-50     border-gray-200/60' :
-                                  'border-transparent'
-                    }`}
-                  >
-                    <div className="shrink-0 flex items-center justify-center">
-                      {isActive ? (
-                        <span className="relative block h-[18px] w-[18px]">
-                          <span className="absolute inset-0 rounded-full border-2 border-emerald-500/25" aria-hidden />
-                          <span className="absolute inset-0 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" aria-label="Cargando" />
-                        </span>
-                      ) : isComplete ? (
-                        <CheckCircle2 className="size-4.5 text-emerald-500" />
-                      ) : isError ? (
-                        <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-                          <XCircle className="size-4.5 text-red-500" />
-                        </motion.div>
-                      ) : (
-                        <Circle className="size-4.5 text-gray-300" />
-                      )}
-                    </div>
-                    
-                    <div className="flex flex-col">
-                      <span className={`text-sm font-medium transition-colors ${
-                        isActive   ? 'text-emerald-700' : 
-                        isError    ? 'text-red-600' :
-                        isComplete ? 'text-gray-700' : 'text-gray-400'
-                      }`}>
-                        {step.label}
-                      </span>
-                      {isError && (
-                        <span className="text-[10px] text-red-400 mt-0.5">
-                          Falló la operación
-                        </span>
-                      )}
-                    </div>
-                  </motion.div>
-                );
-              })}
+              <div>
+                <h3 className={`text-xl font-bold tracking-tight ${titleClass}`}>
+                  {isSuccess ? 'Aprobado' : isError ? 'Error de autorización' : 'Cargando…'}
+                </h3>
+                <p className={`text-sm mt-1 leading-relaxed max-w-[19rem] ${textClass}`}>
+                  {isSuccess
+                    ? 'Servicio autorizado y ONU registrada correctamente'
+                    : isError
+                      ? 'Falló la autorización en SmartOLT o el registro de la ONU'
+                      : 'Dame un momento mientras autorizo en SmartOLT y registro las ONU'}
+                </p>
+              </div>
             </div>
           </motion.div>
         </motion.div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { ChatSidebar } from './components/ChatSidebar';
@@ -113,6 +114,7 @@ function ChatApp() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null); 
   const topSentinelRef = useRef<HTMLDivElement>(null);
+  const [scrollViewportElement, setScrollViewportElement] = useState<HTMLElement | null>(null);
 
   const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
   const [scrollRequestNonce, setScrollRequestNonce] = useState(0);
@@ -564,8 +566,8 @@ function ChatApp() {
 
   const handleSubmitAuth = async (collected: Record<string, unknown>) => {
     const currentChat = chats.find(c => c.id === activeChat);
-    if (!currentChat) return;
-    if (requestInFlightRef.current) return;
+    if (!currentChat) return false;
+    if (requestInFlightRef.current) return false;
 
     requestInFlightRef.current = true;
     setIsAwaitingResponse(true);
@@ -583,7 +585,7 @@ function ChatApp() {
       const data = await res.json();
       if (!res.ok) {
         toast.error('Error al autorizar: ' + (data?.error || res.statusText));
-        return;
+        return false;
       }
 
       if (data?.ok) {
@@ -615,12 +617,15 @@ function ChatApp() {
           )
         );
         toast.success('Autorización enviada');
+        return true;
       } else {
         toast.error('Autorización fallida: ' + (data?.error || 'error desconocido'));
+        return false;
       }
     } catch (err) {
       console.error('submitAuth error', err);
       toast.error('Fallo al autorizar');
+      return false;
     } finally {
       requestInFlightRef.current = false;
       setIsAwaitingResponse(false);
@@ -910,6 +915,68 @@ function ChatApp() {
   }, [sessionId, activeChat, loadSessionMessages]);
 
   const currentChat = chats.find((chat) => chat.id === activeChat);
+  const currentMessages = currentChat?.messages ?? [];
+  const shouldVirtualizeMessages = currentMessages.length > 120;
+
+  const messageVirtualizer = useVirtualizer({
+    count: currentMessages.length,
+    getScrollElement: () => scrollViewportElement,
+    estimateSize: () => 180,
+    overscan: 12,
+    getItemKey: (index) => currentMessages[index]?.id ?? index,
+  });
+
+  useEffect(() => {
+    if (!scrollViewportRef.current) {
+      setScrollViewportElement(null);
+      return;
+    }
+    const viewport = scrollViewportRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+    setScrollViewportElement(viewport);
+  }, [activeChat, loadingMessages]);
+
+  const renderMessageRow = (message: Message, index: number, messages: Message[]) => {
+    const animationKey = message.id === animatingMessageId ||
+      animatingMessageId?.startsWith(message.id + '-');
+    const prevMsg = messages[index - 1];
+    const currDate = message.createdAt ? new Date(message.createdAt) : null;
+    const prevDate = prevMsg?.createdAt ? new Date(prevMsg.createdAt) : null;
+    const showDateSeparator = currDate && (!prevDate || currDate.toDateString() !== prevDate.toDateString());
+
+    return (
+      <div data-message-id={message.id}>
+        {showDateSeparator && (
+          <div className="flex justify-center my-3">
+            <div className="px-3 py-1 text-[11px] font-medium text-gray-400 bg-white border border-gray-200 rounded-full shadow-sm">
+              {currDate?.toLocaleDateString()}
+            </div>
+          </div>
+        )}
+        <ChatMessage
+          role={message.role}
+          content={message.content}
+          imageDataUrl={message.imageDataUrl}
+          isLatest={index === messages.length - 1 && message.role === 'assistant'}
+          isAwaitingResponse={isAwaitingResponse}
+          onRetry={handleRetry}
+          shouldAnimate={animationKey}
+          messageId={message.id}
+          versions={message.versions}
+          currentVersion={message.currentVersion}
+          onVersionChange={handleVersionChange}
+          actions={message.actions}
+          onActionSelect={handleActionSelect}
+          onReplaceMessage={handleReplaceMessage}
+          onSubmitAuth={handleSubmitAuth}
+          onSubmitWan={handleSubmitWan}
+          createdAt={message.createdAt}
+          metadata={message.metadata}
+          highlighted={message.id === highlightedMessageId}
+          disableActions={!!currentChat?.isAdminHistory}
+        />
+      </div>
+    );
+  };
 
   // Observer para Scroll Infinito hacia arriba
   useEffect(() => {
@@ -1011,8 +1078,24 @@ function ChatApp() {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setHighlightedMessageId(scrollToMessageId);
       setTimeout(() => setHighlightedMessageId(null), 2500);
+      return;
     }
-  }, [scrollRequestNonce, scrollToMessageId]);
+
+    if (shouldVirtualizeMessages && currentChat) {
+      const targetIndex = currentChat.messages.findIndex((m) => m.id === scrollToMessageId);
+      if (targetIndex >= 0) {
+        messageVirtualizer.scrollToIndex(targetIndex, { align: 'center' });
+        requestAnimationFrame(() => {
+          const targetEl = document.querySelector<HTMLElement>(`[data-message-id="${scrollToMessageId}"]`);
+          if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setHighlightedMessageId(scrollToMessageId);
+            setTimeout(() => setHighlightedMessageId(null), 2500);
+          }
+        });
+      }
+    }
+  }, [scrollRequestNonce, scrollToMessageId, shouldVirtualizeMessages, currentChat, messageVirtualizer]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1198,47 +1281,39 @@ function ChatApp() {
                           {currentChat.isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-orange-400" />}
                         </div>
                       )}
-                      {currentChat.messages.map((message, index) => {
-                        const animationKey = message.id === animatingMessageId || 
-                          animatingMessageId?.startsWith(message.id + '-');
-                        const prevMsg = currentChat.messages[index - 1];
-                        const currDate = message.createdAt ? new Date(message.createdAt) : null;
-                        const prevDate = prevMsg?.createdAt ? new Date(prevMsg.createdAt) : null;
-                        const showDateSeparator = currDate && (!prevDate || currDate.toDateString() !== prevDate.toDateString());
-                        return (
-                          <div key={message.id} data-message-id={message.id}>
-                            {showDateSeparator && (
-                              <div className="flex justify-center my-3">
-                                <div className="px-3 py-1 text-[11px] font-medium text-gray-400 bg-white border border-gray-200 rounded-full shadow-sm">
-                                  {currDate?.toLocaleDateString()}
-                                </div>
+                      {shouldVirtualizeMessages ? (
+                        <div
+                          className="relative w-full"
+                          style={{ height: `${messageVirtualizer.getTotalSize()}px` }}
+                        >
+                          {messageVirtualizer.getVirtualItems().map((virtualItem) => {
+                            const message = currentChat.messages[virtualItem.index];
+                            if (!message) return null;
+                            return (
+                              <div
+                                key={message.id}
+                                ref={messageVirtualizer.measureElement}
+                                data-index={virtualItem.index}
+                                style={{
+                                  position: 'absolute',
+                                  top: 0,
+                                  left: 0,
+                                  width: '100%',
+                                  transform: `translateY(${virtualItem.start}px)`,
+                                }}
+                              >
+                                {renderMessageRow(message, virtualItem.index, currentChat.messages)}
                               </div>
-                            )}
-                            <ChatMessage 
-                              role={message.role} 
-                              content={message.content}
-                              imageDataUrl={message.imageDataUrl}
-                              isLatest={index === currentChat.messages.length - 1 && message.role === 'assistant'}
-                              isAwaitingResponse={isAwaitingResponse}
-                              onRetry={handleRetry}
-                              shouldAnimate={animationKey}
-                              messageId={message.id}
-                              versions={message.versions}
-                              currentVersion={message.currentVersion}
-                              onVersionChange={handleVersionChange}
-                              actions={message.actions}
-                              onActionSelect={handleActionSelect}
-                              onReplaceMessage={handleReplaceMessage}
-                              onSubmitAuth={handleSubmitAuth}
-                              onSubmitWan={handleSubmitWan}
-                              createdAt={message.createdAt}
-                              metadata={message.metadata}
-                              highlighted={message.id === highlightedMessageId}
-                              disableActions={!!currentChat.isAdminHistory}
-                            />
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        currentChat.messages.map((message, index) => (
+                          <div key={message.id}>
+                            {renderMessageRow(message, index, currentChat.messages)}
                           </div>
-                        );
-                      })}
+                        ))
+                      )}
                       <div ref={messagesEndRef} />
                     </div>
                   )}
