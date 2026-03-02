@@ -222,7 +222,7 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
         <>
           {parts.map((part, i) => 
             part.toLowerCase() === query.toLowerCase() ? (
-              <mark key={i} className="bg-emerald-500/30 text-emerald-300 rounded px-0.5 font-medium">
+              <mark key={i} className="bg-orange-400/30 text-orange-400 rounded px-0.5 font-medium">
                 {part}
               </mark>
             ) : ( part )
@@ -236,7 +236,7 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
     if (items.length === 0) return null;
     return (
       <div className="mb-2">
-        <div className="sticky top-0 z-10 bg-neutral-900/95 backdrop-blur px-3 py-2 text-[10px] uppercase tracking-wider text-neutral-500 font-bold border-b border-neutral-800/50 flex items-center gap-2">
+        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur px-3 py-2 text-[10px] uppercase tracking-wider text-gray-400 font-bold border-b border-gray-200 flex items-center gap-2">
           {icon}
           {title} <span className="opacity-50">({items.length})</span>
         </div>
@@ -252,16 +252,16 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
                 onMouseEnter={() => setSelectedIndex(actualIndex)}
                 className={`w-full text-left p-2 rounded-lg transition-all duration-150 group flex items-start gap-3 border
                   ${isSelected 
-                    ? 'bg-neutral-800 border-neutral-700/60 shadow-md ring-1 ring-white/5' 
-                    : 'border-transparent hover:bg-neutral-800/40 text-neutral-400'
+                    ? 'bg-gray-100 border-gray-300 shadow-md ring-1 ring-gray-900/5' 
+                    : 'border-transparent hover:bg-gray-100 text-gray-500'
                   }`}
               >
                 <div className={`flex-shrink-0 size-8 rounded-md flex items-center justify-center mt-0.5 transition-colors ${
                    result.matchType === 'title' 
-                      ? (isSelected ? 'bg-neutral-700 text-white' : 'bg-neutral-800 text-neutral-500')
+                      ? (isSelected ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-400')
                       : result.messageRole === 'user'
-                          ? (isSelected ? 'bg-neutral-700 text-white' : 'bg-neutral-800 text-neutral-500')
-                          : (isSelected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-900/20 text-emerald-600')
+                          ? (isSelected ? 'bg-gray-200 text-gray-900' : 'bg-gray-100 text-gray-400')
+                          : (isSelected ? 'bg-orange-400/20 text-orange-500' : 'bg-orange-50 text-orange-600')
                 }`}>
                   {result.matchType === 'title' ? <MessageSquare className="size-4" /> : 
                    result.messageRole === 'user' ? <User className="size-4" /> : <Bot className="size-4" />}
@@ -269,10 +269,10 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
 
                 <div className="flex-1 min-w-0 overflow-hidden">
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`text-xs font-semibold truncate ${isSelected ? 'text-white' : 'text-neutral-300'}`}>
+                    <span className={`text-xs font-semibold truncate ${isSelected ? 'text-gray-900' : 'text-gray-700'}`}>
                       {highlightMatch(result.chatTitle, query)}
                     </span>
-                    <span className="text-[10px] text-neutral-600 font-mono flex-shrink-0">
+                    <span className="text-[10px] text-gray-400 font-mono flex-shrink-0">
                       {result.chatTimestamp}
                     </span>
                   </div>
@@ -281,28 +281,28 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
                       {result.matchType === 'message' && (
                         <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wide font-medium ${
                           result.messageRole === 'user' 
-                            ? 'bg-neutral-700/50 text-neutral-400' 
-                            : 'bg-emerald-500/10 text-emerald-400'
+                            ? 'bg-gray-200/50 text-gray-500' 
+                            : 'bg-orange-400/10 text-orange-500'
                         }`}>
                           {result.messageRole === 'user' ? 'Tú' : 'IA'}
                         </span>
                       )}
                       
                       {result.source === 'server' && (
-                        <span className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        <span className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200">
                           <Cloud className="size-2.5" /> Cloud
                         </span>
                       )}
                   </div>
 
                   {/* AQUÍ ESTÁ LA MAGIA PARA QUE NO SE VEA FEO: line-clamp-2 y break-all */}
-                  <p className={`text-xs mt-1.5 leading-relaxed line-clamp-2 break-words text-opacity-90 ${isSelected ? 'text-neutral-300' : 'text-neutral-500'}`}>
+                  <p className={`text-xs mt-1.5 leading-relaxed line-clamp-2 break-words text-opacity-90 ${isSelected ? 'text-gray-700' : 'text-gray-400'}`}>
                     {highlightMatch(result.snippet || result.messageContent || '', query)}
                   </p>
                 </div>
                 
                 {isSelected && (
-                  <CornerDownLeft className="size-3.5 text-neutral-500 self-center hidden sm:block flex-shrink-0" />
+                  <CornerDownLeft className="size-3.5 text-gray-400 self-center hidden sm:block flex-shrink-0" />
                 )}
               </button>
             );
@@ -316,30 +316,30 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
 
   return (
     <div 
-      className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4 pt-8 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] flex items-start justify-center bg-gray-900/50 backdrop-blur-sm p-2 sm:p-4 pt-8 animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       {/* CONTENEDOR PRINCIPAL:
          - h-[500px]: Altura fija suficiente para ver ~3-4 items + header/footer.
          - flex-col: Para la estructura sandwich.
       */}
-      <div className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl overflow-hidden flex flex-col h-[500px] max-h-[80vh]">
+      <div className="w-full max-w-2xl bg-white border border-gray-200 rounded-xl shadow-2xl shadow-gray-200 overflow-hidden flex flex-col h-[500px] max-h-[80vh]">
         
         {/* 1. HEADER (FIJO) */}
-        <div className="relative border-b border-neutral-800/50 flex-shrink-0 bg-neutral-900 z-20">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-neutral-500" />
+        <div className="relative border-b border-gray-200 flex-shrink-0 bg-gray-50 z-20">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
           <Input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar..."
-            className="h-14 pl-11 pr-12 bg-transparent border-0 text-white placeholder:text-neutral-600 focus-visible:ring-0 text-base rounded-none"
+            className="h-14 pl-11 pr-12 bg-transparent border-0 text-gray-900 placeholder:text-gray-400 focus-visible:ring-0 text-base rounded-none"
           />
           <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            {isSearchingServer && <Loader2 className="size-4 text-emerald-500 animate-spin" />}
+            {isSearchingServer && <Loader2 className="size-4 text-orange-500 animate-spin" />}
             <button
               onClick={onClose}
-              className="p-1.5 rounded-md text-neutral-500 hover:text-white hover:bg-neutral-800 transition-colors"
+              className="p-1.5 rounded-md text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-colors"
             >
               <X className="size-5" />
             </button>
@@ -347,13 +347,13 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
         </div>
 
         {/* 2. CUERPO (SCROLLABLE) - El 'flex-1 min-h-0' es clave aquí */}
-        <div className="flex-1 min-h-0 bg-neutral-950/50 relative">
+        <div className="flex-1 min-h-0 bg-gray-50 relative">
           <ScrollArea className="h-full w-full">
             {!query.trim() ? (
               <div className="h-full flex flex-col items-center justify-center p-8 text-center opacity-60">
-                <Search className="size-10 text-neutral-700 mb-4" />
-                <p className="text-sm font-medium text-neutral-400">Búsqueda Global</p>
-                <p className="text-xs text-neutral-600 mt-2 max-w-[250px]">
+                <Search className="size-10 text-gray-300 mb-4" />
+                <p className="text-sm font-medium text-gray-500">Búsqueda Global</p>
+                <p className="text-xs text-gray-400 mt-2 max-w-[250px]">
                   Tus chats y el historial del sistema.
                 </p>
               </div>
@@ -361,13 +361,13 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
                <div className="h-full flex flex-col items-center justify-center p-8 text-center">
                   {isSearchingServer ? (
                      <div className="flex flex-col items-center gap-3">
-                        <Loader2 className="size-8 text-emerald-500 animate-spin" />
-                        <span className="text-xs text-neutral-500">Buscando en servidor...</span>
+                        <Loader2 className="size-8 text-orange-500 animate-spin" />
+                        <span className="text-xs text-gray-400">Buscando en servidor...</span>
                      </div>
                   ) : (
                     <>
-                      <p className="text-sm font-medium text-neutral-400">Sin resultados</p>
-                      <p className="text-xs text-neutral-600 mt-1">Prueba con otro término</p>
+                      <p className="text-sm font-medium text-gray-500">Sin resultados</p>
+                      <p className="text-xs text-gray-400 mt-1">Prueba con otro término</p>
                     </>
                   )}
                </div>
@@ -384,12 +384,12 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
                   "Historial de Usuarios", 
                   groupedResults.admin, 
                   groupedResults.personal.length, 
-                  <Shield className="size-3 text-emerald-500" />
+                  <Shield className="size-3 text-orange-500" />
                 )}
                 
                 {isSearchingServer && (
-                  <div className="py-3 text-center border-t border-neutral-800/30 mx-4">
-                     <span className="inline-flex items-center gap-2 text-[10px] text-emerald-500/70 animate-pulse">
+                  <div className="py-3 text-center border-t border-gray-200 mx-4">
+                     <span className="inline-flex items-center gap-2 text-[10px] text-orange-500/70 animate-pulse">
                         <Cloud className="size-3" /> Buscando más resultados...
                      </span>
                   </div>
@@ -400,7 +400,7 @@ export function SearchModal({ isOpen, onClose, onSelectChat, chats, isAdmin = fa
         </div>
         
         {/* 3. FOOTER (FIJO) - Siempre visible abajo */}
-        <div className="bg-neutral-900 border-t border-neutral-800 px-4 py-2 flex justify-between items-center text-[10px] text-neutral-500 flex-shrink-0 z-20">
+        <div className="bg-white border-t border-gray-200 px-4 py-2 flex justify-between items-center text-[10px] text-gray-400 flex-shrink-0 z-20">
           <span>{flatList.length} coincidencias</span>
           <div className="flex gap-3">
              <span className="hidden sm:inline">↑↓ navegar</span>

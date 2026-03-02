@@ -43,28 +43,27 @@ export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
           
           {/* Header Responsive */}
           <div className="text-center space-y-3 sm:space-y-4">
-            <div className="inline-flex items-center justify-center size-14 sm:size-16 bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl mb-1 shadow-xl shadow-emerald-500/20 relative">
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald-400 to-green-500 rounded-2xl blur-lg opacity-40 animate-pulse"></div>
-              <Bot className="size-7 sm:size-8 text-white relative z-10" />
+            <div className="inline-flex items-center justify-center size-14 sm:size-16 bg-[#1e3a8a] rounded-2xl mb-1 shadow-lg shadow-[#1e3a8a]/25 relative">
+              <Bot className="size-7 sm:size-8 text-orange-500 relative z-10" />
             </div>
             
             {/* Texto adaptable: 2xl en móvil -> 4xl en desktop */}
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight bg-gradient-to-br from-white to-neutral-300 bg-clip-text text-transparent px-2">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
               GeoNetBot
             </h1>
-            <p className="text-neutral-400 text-xs sm:text-base max-w-lg mx-auto leading-relaxed px-4">
-              Ayuda al instalador a autogestionar altas, validar instalaciones tiempo real
+            <p className="text-gray-400 text-sm sm:text-base max-w-md mx-auto leading-relaxed px-4">
+              Autogestiona altas, valida instalaciones y administra tu red en tiempo real
             </p>
           </div>
 
           {/* Listado de Consultas */}
           <div className="space-y-3">
-            <h2 className="text-[10px] sm:text-xs font-semibold text-neutral-500 px-1 tracking-wide uppercase text-center sm:text-left">
+            <p className="text-[10px] sm:text-xs font-semibold text-gray-400 tracking-wider uppercase text-center sm:text-left px-1">
               Comienza rápido
-            </h2>
+            </p>
             
             {/* 3. Grilla Reactiva: 1 col (móvil), 2 cols (tablet), 3 cols (desktop) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
               {exampleQueries.map((example, index) => {
                 const Icon = example.icon;
                 return (
@@ -72,23 +71,21 @@ export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
                     key={index}
                     onClick={() => onSelectQuery?.(example.query)}
                     disabled={disabled}
-                    className={`group p-4 rounded-xl bg-neutral-900/50 border border-neutral-800/80 transition-all duration-300 text-left relative overflow-hidden shadow-sm h-full ${
+                    className={`group p-4 rounded-xl bg-white border border-gray-200 text-left relative overflow-hidden transition-all duration-200 ${
                       disabled
-                        ? 'opacity-60 cursor-not-allowed'
-                        : 'hover:bg-neutral-800/60 hover:border-neutral-700 hover:shadow-md hover:shadow-emerald-500/5'
+                        ? 'opacity-50 cursor-not-allowed'
+                        : 'hover:border-[#1e3a8a]/30 hover:shadow-md hover:shadow-[#1e3a8a]/15 hover:-translate-y-px active:translate-y-0'
                     }`}
                   >
-                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/0 to-green-600/0 group-hover:from-emerald-500/5 group-hover:to-green-600/5 transition-all duration-300" />
-                    
-                    <div className="relative flex gap-3 items-start sm:items-center">
-                      <div className="flex-shrink-0 size-10 rounded-lg bg-neutral-800/70 group-hover:bg-gradient-to-br group-hover:from-emerald-500/20 group-hover:to-green-600/20 border border-neutral-700 group-hover:border-emerald-500/30 flex items-center justify-center transition-all duration-300">
-                        <Icon className="size-4.5 text-emerald-400 group-hover:text-emerald-300 transition-colors duration-300" />
+                    <div className="flex gap-3 items-start">
+                      <div className="flex-shrink-0 size-9 rounded-lg bg-[#1e3a8a]/10 border border-[#1e3a8a]/20 flex items-center justify-center transition-colors duration-150 group-hover:bg-[#1e3a8a]/15">
+                        <Icon className="size-4 text-[#f5831f]" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-semibold text-white mb-1.5 group-hover:text-emerald-50 transition-colors duration-300 leading-tight">
+                        <h3 className="text-sm font-semibold text-gray-800 mb-1 leading-tight group-hover:text-gray-900">
                           {example.title}
                         </h3>
-                        <p className="text-xs text-neutral-500 group-hover:text-neutral-400 transition-colors duration-300 leading-relaxed line-clamp-2">
+                        <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">
                           {example.description}
                         </p>
                       </div>
@@ -100,13 +97,13 @@ export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
           </div>
 
           {/* Footer */}
-          <div className="text-center pt-4 border-t border-neutral-800/50">
-            <p className="text-[10px] sm:text-xs text-neutral-600 flex flex-wrap items-center justify-center gap-2">
+          <div className="text-center pt-4 border-t border-gray-200">
+            <p className="text-[11px] text-gray-400 flex flex-wrap items-center justify-center gap-2">
               <span className="flex items-center gap-1.5">
-                <span className="inline-block size-1.5 bg-emerald-500 rounded-full animate-pulse shadow-sm shadow-emerald-500/50"></span>
+                <span className="inline-block size-1.5 bg-orange-400 rounded-full animate-pulse"></span>
                 Integrado con SmartOLT
               </span>
-              <span className="hidden sm:inline text-neutral-700">•</span>
+              <span className="hidden sm:inline text-gray-300">·</span>
               <span>Pensado para instaladores en terreno</span>
             </p>
           </div>

@@ -98,24 +98,27 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 flex items-center justify-center px-4">
-      <div className="max-w-md w-full">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-orange-50/30 flex items-center justify-center px-4">
+      <div className="max-w-sm w-full">
         {/* Logo y Título */}
-        <div className="flex flex-col items-center mb-10">
+        <div className="flex flex-col items-center mb-8">
           <motion.div 
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-3"
+            className="flex items-center gap-3 mb-2"
           >
-            <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-              <Bot className="text-emerald-500 size-6" />
+            <div className="h-11 w-11 flex items-center justify-center rounded-xl bg-gradient-to-b from-[#234c9f] to-[#142a66] shadow-[0_8px_20px_rgba(30,58,138,0.35)] border border-white/15 backdrop-blur-md">
+              <Bot className="text-orange-500 size-6" />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">GeoNetBot</h1>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">GeoNetBot</h1>
           </motion.div>
-          <p className="text-neutral-500 text-sm mt-2">Panel de Control de Infraestructura</p>
+          <p className="text-gray-400 text-sm">Panel de control de infraestructura</p>
         </div>
 
-        <div className="bg-neutral-900/30 border border-neutral-800 rounded-2xl p-8 shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-xl shadow-gray-200/60 overflow-hidden">
+          {/* Orange top accent bar */}
+          <div className="h-1 bg-gradient-to-r from-orange-500 to-orange-400" />
+          <div className="p-8">
           <AnimatePresence mode="wait">
             {step === 'credentials' ? (
               <motion.form
@@ -128,15 +131,15 @@ export function LoginPage() {
               >
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="text-xs font-medium text-neutral-400 ml-1">Email corporativo</Label>
+                    <Label htmlFor="email" className="text-xs font-medium text-gray-500 ml-1">Email corporativo</Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-neutral-600" />
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                       <Input
                         id="email"
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="pl-10 bg-neutral-950 border-neutral-800 text-white focus:border-emerald-500/50 h-11 transition-all"
+                        className="pl-10 bg-white border-gray-200 text-gray-900 focus:border-orange-300 h-11 transition-all"
                         placeholder="usuario@geonet.com"
                         required
                         disabled={isLoading}
@@ -145,15 +148,15 @@ export function LoginPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="password" className="text-xs font-medium text-neutral-400 ml-1">Contraseña</Label>
+                    <Label htmlFor="password" className="text-xs font-medium text-gray-500 ml-1">Contraseña</Label>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-neutral-600" />
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                       <Input
                         id="password"
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="pl-10 pr-10 bg-neutral-950 border-neutral-800 text-white focus:border-emerald-500/50 h-11 transition-all"
+                        className="pl-10 pr-10 bg-white border-gray-200 text-gray-900 focus:border-orange-300 h-11 transition-all"
                         placeholder="••••••••"
                         required
                         disabled={isLoading}
@@ -162,7 +165,7 @@ export function LoginPage() {
                         type="button"
                         tabIndex={-1}
                         onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-600 hover:text-neutral-400 focus:outline-none"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#1e3a8a] hover:text-[#f5831f] focus:outline-none"
                         aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                       >
                         {showPassword ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
@@ -175,7 +178,7 @@ export function LoginPage() {
                   <motion.div 
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="flex items-center gap-2 p-3 bg-red-500/5 border border-red-500/20 rounded-lg text-red-500 text-xs"
+                    className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs"
                   >
                     <AlertCircle className="size-4 shrink-0" />
                     {error}
@@ -185,7 +188,7 @@ export function LoginPage() {
                 <Button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg transition-all"
+                  className="w-full h-11 bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white font-semibold rounded-lg transition-all border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md"
                 >
                   {isLoading ? <Loader2 className="animate-spin size-5" /> : 'Iniciar Sesión'}
                 </Button>
@@ -204,17 +207,17 @@ export function LoginPage() {
                 className="space-y-6"
               >
                 <div className="text-center">
-                  <div className="inline-flex items-center justify-center p-2 bg-emerald-500/10 rounded-full mb-3">
-                    <ShieldCheck className="text-emerald-500 size-5" />
+                  <div className="inline-flex items-center justify-center p-2 bg-[#1e3a8a]/10 rounded-full mb-3">
+                    <ShieldCheck className="text-[#f5831f] size-5" />
                   </div>
-                  <h2 className="text-white font-semibold italic">Doble Factor</h2>
-                  <p className="text-xs text-neutral-500 mt-1">
+                  <h2 className="text-gray-900 font-semibold italic">Doble Factor</h2>
+                  <p className="text-xs text-gray-400 mt-1">
                     {step === 'setup2fa' ? 'Configura tu autenticador' : 'Ingresa el código de seguridad'}
                   </p>
                 </div>
 
                 {step === 'setup2fa' && qrImage && (
-                  <div className="flex justify-center p-2 bg-white rounded-xl w-fit mx-auto shadow-lg border-4 border-neutral-800">
+                  <div className="flex justify-center p-2 bg-white rounded-xl w-fit mx-auto shadow-lg border-4 border-gray-200">
                     <img src={qrImage} alt="QR" className="w-32 h-32" />
                   </div>
                 )}
@@ -229,10 +232,10 @@ export function LoginPage() {
                       if (error) setError('');
                       setTwoFactorToken(e.target.value.replace(/\D/g, ''));
                     }}
-                    className={`bg-neutral-950 text-center text-2xl tracking-[0.4em] font-mono h-14 transition-all duration-300 ${
+                    className={`bg-white text-center text-2xl tracking-[0.4em] font-mono h-14 transition-all duration-300 ${
                       error 
-                        ? 'border-red-500 text-red-500 focus:border-red-500' 
-                        : 'border-neutral-800 text-white focus:border-emerald-500/50'
+                        ? 'border-red-500 text-red-600 focus:border-red-500' 
+                        : 'border-gray-200 text-gray-900 focus:border-orange-300'
                     }`}
                     placeholder="000000"
                     required
@@ -243,7 +246,7 @@ export function LoginPage() {
                     <motion.p 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="text-center text-red-500 text-xs font-medium"
+                      className="text-center text-red-600 text-xs font-medium"
                     >
                       {error}
                     </motion.p>
@@ -253,9 +256,9 @@ export function LoginPage() {
                 <Button
                   type="submit"
                   disabled={isLoading || twoFactorToken.length < 6}
-                  className={`w-full h-11 font-semibold rounded-lg transition-colors ${
-                    error ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-500'
-                  } text-white`}
+                  className={`w-full h-11 font-semibold rounded-lg transition-all text-white bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md ${
+                    error ? 'ring-2 ring-red-300/70' : ''
+                  }`}
                 >
                   {isLoading ? <Loader2 className="animate-spin size-5" /> : 'Verificar Código'}
                 </Button>
@@ -266,7 +269,7 @@ export function LoginPage() {
                     setError('');
                     setStep('credentials');
                   }}
-                  className="w-full flex items-center justify-center gap-2 text-xs text-neutral-600 hover:text-neutral-400 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 text-xs text-[#1e3a8a] hover:text-[#f5831f] transition-colors"
                 >
                   <ArrowLeft className="size-3" />
                   Volver al inicio
@@ -274,10 +277,11 @@ export function LoginPage() {
               </motion.form>
             )}
           </AnimatePresence>
+          </div>
         </div>
         
-        <p className="text-center text-[10px] text-neutral-700 mt-8 tracking-widest uppercase">
-          Acceso Restringido - Personal Autorizado
+        <p className="text-center text-[10px] text-gray-400 mt-6 tracking-widest uppercase">
+          Acceso Restringido · Personal Autorizado
         </p>
       </div>
     </div>

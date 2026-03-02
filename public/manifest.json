@@ -4,18 +4,13 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#1976d2",
+  "theme_color": "#111d48",
   "description": "Asistente y panel de usuarios de GeoNet.",
   "icons": [
     {
-      "src": "/assets/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/assets/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
     }
   ]
 }

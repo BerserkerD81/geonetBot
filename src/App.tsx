@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { Routes, Route, useNavigate, useParams, useLocation, Navigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { ChatSidebar } from './components/ChatSidebar';
@@ -89,8 +90,10 @@ const API_BASE = (() => {
 function ChatApp() {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const { sessionId } = useParams();
   const location = useLocation();
+  // Derive sessionId directly from the URL – useParams() would return {} here
+  // because ChatApp wraps <Routes> itself and is not rendered by a parent route.
+  const sessionId = location.pathname.match(/^\/chat\/([^/]+)/)?.[1];
   
   // Estado Principal
   const [chats, setChats] = useState<Chat[]>([]);
@@ -199,15 +202,32 @@ function ChatApp() {
     
     const targetChat = chats.find(c => c.id === sessionId);
     
-    if (!targetChat) return; 
-    if (targetChat.isAdminHistory) return;
-    if (targetChat.isLoadingMore && !aroundId) return;
-    if (targetChat.messagesLoaded && !aroundId && !beforeId) return;
+    // Evitamos peticiones dobles o innecesarias
+    if (targetChat?.isAdminHistory) return;
+    if (targetChat?.isLoadingMore && !aroundId) return;
+    if (targetChat?.messagesLoaded && !aroundId && !beforeId) return;
 
     const isGlobalLoad = !beforeId; 
     if (isGlobalLoad) setLoadingMessages(true);
 
-    setChats(prev => prev.map(c => c.id === sessionId ? { ...c, isLoadingMore: true } : c));
+    // Inyectamos el placeholder dinámicamente o marcamos que está cargando
+    setChats(prev => {
+      const exists = prev.find(c => c.id === sessionId);
+      if (!exists) {
+        return [{
+          id: sessionId,
+          title: 'Cargando conversación...',
+          timestamp: '...',
+          preview: 'Recuperando historial...',
+          messages: [],
+          messagesLoaded: false,
+          isAdminHistory: false,
+          hasMoreMessages: true,
+          isLoadingMore: true 
+        }, ...prev];
+      }
+      return prev.map(c => c.id === sessionId ? { ...c, isLoadingMore: true } : c);
+    });
 
     try {
       const url = new URL(
@@ -287,32 +307,14 @@ function ChatApp() {
   }, [chats]);
 
   // -------------------------------------------------------------------------
-  // 3. SELECCIÓN DE CHAT Y SCROLL (CON PLACEHOLDER PARA BÚSQUEDA)
+  // 3. SELECCIÓN DE CHAT Y SCROLL
   // -------------------------------------------------------------------------
-  const handleSelectChat = async (id: string, messageId?: string, metadata?: { title: string, timestamp: string }) => {
+  const handleSelectChat = async (id: string, messageId?: string) => {
     if (id && location.pathname !== `/chat/${id}`) {
       navigate(`/chat/${id}`);
     }
-    
-    let targetChat = chats.find(c => c.id === id);
-
-    if (!targetChat && metadata) {
-        const placeholderChat: Chat = {
-            id: id,
-            title: metadata.title || 'Cargando chat...',
-            timestamp: metadata.timestamp || '...',
-            preview: 'Recuperando historial...',
-            messages: [],
-            messagesLoaded: false,
-            isAdminHistory: false,
-            hasMoreMessages: true,
-            isLoadingMore: true 
-        };
-        
-        setChats(prev => [placeholderChat, ...prev]);
-        targetChat = placeholderChat; 
-    }
-
+    setShowAdminPanel(false);
+    setShowUserPanel(false);
     setActiveChat(id);
     
     if (window.innerWidth < 768) {
@@ -323,7 +325,6 @@ function ChatApp() {
         setLoadingMessages(true);
         try {
             await loadSessionMessages(id, { aroundId: messageId });
-            
             setTimeout(() => {
                 setScrollToMessageId(messageId);
                 setScrollRequestNonce((n) => n + 1);
@@ -333,9 +334,7 @@ function ChatApp() {
             setLoadingMessages(false);
         }
     } else {
-        if (!targetChat?.messagesLoaded) {
-            await loadSessionMessages(id);
-        }
+        await loadSessionMessages(id);
     }
     
     void refreshChatTitles();
@@ -345,10 +344,13 @@ function ChatApp() {
   const handleNewChat = useCallback(() => {
     setActiveChat(null);
     setAnimatingMessageId(null);
+    setShowAdminPanel(false);
+    setShowUserPanel(false);
+    navigate('/chat');
     if (window.innerWidth < 768) {
       setSidebarCollapsed(true);
     }
-  }, []);
+  }, [navigate]);
 
   const handleDeleteChat = useCallback((id: string) => {
     setChats((prev) => prev.filter((chat) => chat.id !== id));
@@ -459,6 +461,7 @@ function ChatApp() {
         };
         setChats((prev) => [newChat, ...prev]);
         setActiveChat(returnedSessionId);
+        navigate(`/chat/${returnedSessionId}`);
         void refreshChatTitles();
       }
     } catch (err) {
@@ -893,47 +896,18 @@ function ChatApp() {
   // 7. EFECTOS UI: SCROLL INFINITO, AUTO-SCROLL Y SINCRONIZACIÓN DE RUTAS
   // -------------------------------------------------------------------------
   
-  // 1. Sincroniza el chat activo con la URL (incluso al recargar la página)
+  // ¡Este es el único useEffect que necesitamos ahora para sincronizar URL!
   useEffect(() => {
     if (sessionId && sessionId !== activeChat) {
       setActiveChat(sessionId);
-      
-      // Inyectamos un "placeholder" en la lista temporalmente.
-      setChats((prev) => {
-        if (!prev.some((c) => c.id === sessionId)) {
-          return [{
-            id: sessionId,
-            title: 'Cargando conversación...',
-            timestamp: '...',
-            preview: 'Recuperando historial...',
-            messages: [],
-            messagesLoaded: false,
-            isAdminHistory: false,
-            hasMoreMessages: true,
-            isLoadingMore: false 
-          }, ...prev];
-        }
-        return prev;
-      });
-    }
-    
-    // Si regresamos a la raíz, limpiar el chat activo
-    if (!sessionId && activeChat) {
+      // Admin history chats are loaded via the admin preload effect, not the API endpoint.
+      if (!sessionId.startsWith('admin-')) {
+        loadSessionMessages(sessionId);
+      }
+    } else if (!sessionId && activeChat) {
       setActiveChat(null);
     }
-  }, [sessionId, activeChat]);
-
-  // 2. Dispara la carga de mensajes automáticamente si entramos directo por URL
-  useEffect(() => {
-    if (activeChat) {
-      const current = chats.find((c) => c.id === activeChat);
-      
-      // Si el chat existe pero no hemos cargado sus mensajes ni estamos en proceso:
-      if (current && !current.messagesLoaded && !current.isLoadingMore && !current.isAdminHistory) {
-        loadSessionMessages(activeChat);
-      }
-    }
-  }, [activeChat, chats, loadSessionMessages]);
+  }, [sessionId, activeChat, loadSessionMessages]);
 
   const currentChat = chats.find((chat) => chat.id === activeChat);
 
@@ -1092,9 +1066,9 @@ function ChatApp() {
 
   function StatusDot({ label, ok }: { label: string; ok: boolean }) {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-neutral-400">
-        <span className={`inline-block h-2.5 w-2.5 rounded-full ${ok ? 'bg-emerald-500 shadow-[0_0_10px_2px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_10px_2px_rgba(239,68,68,0.35)]'}`}></span>
-        <span className="hidden lg:inline">{label}</span>
+      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+        <span className={`inline-block h-2.5 w-2.5 rounded-full ${ok ? 'bg-emerald-500 shadow-[0_0_8px_2px_rgba(16,185,129,0.4)]' : 'bg-red-400 shadow-[0_0_8px_2px_rgba(239,68,68,0.3)]'}`}></span>
+        <span className="hidden lg:inline font-medium">{label}</span>
       </div>
     );
   }
@@ -1104,7 +1078,7 @@ function ChatApp() {
       <Route
         path="/chat/:sessionId"
         element={
-          <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
+          <div className="flex h-screen bg-gray-50 text-gray-900 overflow-hidden">
             <SearchModal
               key={searchOpen ? "open" : "closed"}
               isOpen={searchOpen}
@@ -1126,24 +1100,47 @@ function ChatApp() {
               onOpenProfile={useCallback(() => { if (!isAdmin) setShowUserPanel(true); }, [isAdmin])}
             />
             <div className="flex-1 flex flex-col min-w-0 relative">
-              {showAdminPanel && (
-                <AdminUserPanel 
-                  onClose={() => setShowAdminPanel(false)}
-                  // @ts-expect-error: Propiedad onOpenUserHistory aún no definida en AdminUserPanel
-                  onOpenUserHistory={openUserHistoryAsChat}
-                />
-              )}
-              {showUserPanel && !isAdmin && (
-                <UserAccountPanel onClose={() => setShowUserPanel(false)} />
-              )}
+              <AnimatePresence>
+                {showAdminPanel && (
+                  <motion.div
+                    key="admin-panel"
+                    className="absolute inset-0 z-30 overflow-hidden"
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '100%', opacity: 0 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <AdminUserPanel 
+                      onClose={() => setShowAdminPanel(false)}
+                      // @ts-expect-error: Propiedad onOpenUserHistory aún no definida en AdminUserPanel
+                      onOpenUserHistory={openUserHistoryAsChat}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <AnimatePresence>
+                {showUserPanel && !isAdmin && (
+                  <motion.div
+                    key="user-panel"
+                    className="absolute inset-0 z-30 overflow-hidden"
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '100%', opacity: 0 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <UserAccountPanel onClose={() => setShowUserPanel(false)} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               {/* Header */}
               <header
-                className="fixed top-0 left-0 right-0 z-60 flex items-center justify-between px-4 py-3 border-b border-neutral-800/50 bg-neutral-950/95 backdrop-blur-xl"
+                className="fixed top-0 left-0 right-0 z-60 flex items-center justify-between px-4 bg-white/98 backdrop-blur-xl"
                 style={{
                   height: 'calc(56px + env(safe-area-inset-top))',
                   paddingTop: 'env(safe-area-inset-top)',
                   paddingLeft: !sidebarCollapsed && isDesktop ? 'calc(16rem + 0.625rem)' : undefined,
                   transition: 'padding-left 200ms ease, padding-top 200ms ease',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 0 rgba(0,0,0,0.04)',
                 }}
               >
                 <div className="flex items-center gap-3">
@@ -1151,53 +1148,54 @@ function ChatApp() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                    className="h-9 w-9 p-0 hover:bg-neutral-800/70 rounded-lg transition-all duration-200"
+                    className="h-9 w-9 p-0 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 rounded-lg transition-all duration-200"
                   >
-                    <PanelLeft className="size-5 text-neutral-400" />
+                    <PanelLeft className="size-4.5" />
                   </Button>
-                  <div className="hidden sm:block">
-                    <h2 className="text-sm font-semibold text-white">
+                  <div className="hidden sm:flex flex-col">
+                    <h2 className="text-sm font-semibold text-gray-800 leading-tight">
                       {currentChat ? currentChat.title : 'Nuevo chat'}
                     </h2>
-                    <p className="text-xs text-neutral-500">
+                    <p className="text-[11px] text-gray-400 leading-tight">
                       {currentChat 
                         ? (loadingMessages ? 'Cargando historial...' : currentChat.timestamp)
-                        : 'Comienza una conversación con el asistente de SmartOLT'}
+                        : 'Asistente SmartOLT'}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="hidden md:flex items-center gap-2 pr-2 border-r border-neutral-800/60">
+                <div className="flex items-center gap-1.5">
+                  <div className="hidden md:flex items-center gap-3 mr-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-100">
                     <StatusDot label="WispHub" ok={!!integrationStatus?.wisphub?.ok} />
+                    <div className="w-px h-3.5 bg-gray-200" />
                     <StatusDot label="SmartOLT" ok={!!integrationStatus?.smartolt?.ok} />
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setSearchOpen(true)}
-                    className="h-9 px-3 gap-2 hover:bg-neutral-800/70 rounded-lg transition-all duration-200"
+                    className="h-9 px-3 gap-2 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 rounded-lg transition-all duration-200"
                   >
-                    <Search className="size-4 text-neutral-400" />
-                    <span className="hidden sm:inline text-xs text-neutral-400">Buscar</span>
-                    <kbd className="hidden sm:inline-flex h-5 items-center gap-1 rounded bg-neutral-800 px-1.5 font-mono text-[10px] font-medium text-neutral-400">
-                      <span className="text-xs">⌘</span>K
+                    <Search className="size-4" />
+                    <span className="hidden sm:inline text-xs font-medium">Buscar</span>
+                    <kbd className="hidden sm:inline-flex h-5 items-center gap-0.5 rounded-md bg-gray-100 border border-gray-200/80 px-1.5 font-mono text-[10px] font-medium text-gray-400">
+                      <span className="text-[11px]">⌘</span>K
                     </kbd>
                   </Button>
                 </div>
               </header>
               {/* Messages Area */}
               {currentChat ? (
-                <ScrollArea className="flex-1 overflow-y-auto bg-neutral-950 pt-14" ref={scrollViewportRef}>
+                <ScrollArea className="flex-1 overflow-y-auto bg-gray-50 pt-14" ref={scrollViewportRef}>
                   {loadingMessages ? (
                     <div className="flex h-full items-center justify-center">
-                      <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+                      <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
                     </div>
                   ) : (
                     <div className="pb-4 min-h-full flex flex-col justify-end">
                       {/* Spinner de carga de historial antiguo */}
                       {currentChat.hasMoreMessages && !currentChat.isAdminHistory && (
                         <div ref={topSentinelRef} className="h-10 flex w-full justify-center items-center py-2 shrink-0">
-                          {currentChat.isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-neutral-500" />}
+                          {currentChat.isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-orange-400" />}
                         </div>
                       )}
                       {currentChat.messages.map((message, index) => {
@@ -1210,8 +1208,8 @@ function ChatApp() {
                         return (
                           <div key={message.id} data-message-id={message.id}>
                             {showDateSeparator && (
-                              <div className="flex justify-center my-2">
-                                <div className="px-3 py-1 text-[11px] text-neutral-400 bg-neutral-900/60 border border-neutral-800/60 rounded-full">
+                              <div className="flex justify-center my-3">
+                                <div className="px-3 py-1 text-[11px] font-medium text-gray-400 bg-white border border-gray-200 rounded-full shadow-sm">
                                   {currDate?.toLocaleDateString()}
                                 </div>
                               </div>
@@ -1236,6 +1234,7 @@ function ChatApp() {
                               createdAt={message.createdAt}
                               metadata={message.metadata}
                               highlighted={message.id === highlightedMessageId}
+                              disableActions={!!currentChat.isAdminHistory}
                             />
                           </div>
                         );
@@ -1245,14 +1244,14 @@ function ChatApp() {
                   )}
                 </ScrollArea>
               ) : (
-                <div className="flex-1 overflow-y-auto bg-neutral-950 pt-14">
+                <div className="flex-1 overflow-y-auto bg-gray-50 pt-14">
                   <EmptyChat onSelectQuery={handleSendMessage} disabled={isAwaitingResponse} />
                 </div>
               )}
               {/* Input */}
               <div className="flex-shrink-0">
                 {currentChat && currentChat.isAdminHistory && isAdmin ? (
-                  <div className="px-4 py-2 text-xs text-neutral-500 text-center bg-neutral-950 border-t border-neutral-800/60">
+                  <div className="px-4 py-2 text-xs text-orange-600 text-center bg-orange-50 border-t border-orange-100 font-medium">
                     Vista de historial de usuario (solo lectura).
                   </div>
                 ) : (
@@ -1270,7 +1269,7 @@ function ChatApp() {
       <Route
         path="/chat"
         element={
-          <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
+          <div className="flex h-screen bg-gray-50 text-gray-900 overflow-hidden">
             <SearchModal
               key={searchOpen ? "open" : "closed"}
               isOpen={searchOpen}
@@ -1292,7 +1291,93 @@ function ChatApp() {
               onOpenProfile={useCallback(() => { if (!isAdmin) setShowUserPanel(true); }, [isAdmin])}
             />
             <div className="flex-1 flex flex-col min-w-0 relative">
-              <EmptyChat onSelectQuery={handleSendMessage} disabled={isAwaitingResponse} />
+              <AnimatePresence>
+                {showAdminPanel && (
+                  <motion.div
+                    key="admin-panel"
+                    className="absolute inset-0 z-30 overflow-hidden"
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '100%', opacity: 0 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <AdminUserPanel 
+                      onClose={() => setShowAdminPanel(false)}
+                      // @ts-expect-error: Propiedad onOpenUserHistory aún no definida en AdminUserPanel
+                      onOpenUserHistory={openUserHistoryAsChat}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <AnimatePresence>
+                {showUserPanel && !isAdmin && (
+                  <motion.div
+                    key="user-panel"
+                    className="absolute inset-0 z-30 overflow-hidden"
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '100%', opacity: 0 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <UserAccountPanel onClose={() => setShowUserPanel(false)} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              {/* Header */}
+              <header
+                className="fixed top-0 left-0 right-0 z-60 flex items-center justify-between px-4 bg-white/98 backdrop-blur-xl"
+                style={{
+                  height: 'calc(56px + env(safe-area-inset-top))',
+                  paddingTop: 'env(safe-area-inset-top)',
+                  paddingLeft: !sidebarCollapsed && isDesktop ? 'calc(16rem + 0.625rem)' : undefined,
+                  transition: 'padding-left 200ms ease, padding-top 200ms ease',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 0 rgba(0,0,0,0.04)',
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                    className="h-9 w-9 p-0 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 rounded-lg transition-all duration-200"
+                  >
+                    <PanelLeft className="size-4.5" />
+                  </Button>
+                  <div className="hidden sm:flex flex-col">
+                    <h2 className="text-sm font-semibold text-gray-800 leading-tight">
+                      Nuevo chat
+                    </h2>
+                    <p className="text-[11px] text-gray-400 leading-tight">
+                      Asistente SmartOLT
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="hidden md:flex items-center gap-3 mr-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-100">
+                    <StatusDot label="WispHub" ok={!!integrationStatus?.wisphub?.ok} />
+                    <div className="w-px h-3.5 bg-gray-200" />
+                    <StatusDot label="SmartOLT" ok={!!integrationStatus?.smartolt?.ok} />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSearchOpen(true)}
+                    className="h-9 px-3 gap-2 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 rounded-lg transition-all duration-200"
+                  >
+                    <Search className="size-4" />
+                    <span className="hidden sm:inline text-xs font-medium">Buscar</span>
+                    <kbd className="hidden sm:inline-flex h-5 items-center gap-0.5 rounded-md bg-gray-100 border border-gray-200/80 px-1.5 font-mono text-[10px] font-medium text-gray-400">
+                      <span className="text-[11px]">⌘</span>K
+                    </kbd>
+                  </Button>
+                </div>
+              </header>
+              <div className="flex-1 overflow-y-auto bg-gray-50 pt-14">
+                <EmptyChat onSelectQuery={handleSendMessage} disabled={isAwaitingResponse} />
+              </div>
+              <div className="flex-shrink-0">
+                <ChatInput onSendMessage={handleSendMessage} isLoading={isAwaitingResponse} />
+              </div>
             </div>
           </div>
         }
@@ -1315,8 +1400,11 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-950 text-neutral-300 text-sm">
-        Cargando sesión...
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-500 text-sm font-medium tracking-wide">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
+          <span>Cargando sesión...</span>
+        </div>
       </div>
     );
   }

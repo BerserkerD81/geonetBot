@@ -42,33 +42,34 @@ const ChatItem = memo(({
     <div
       role="button"
       tabIndex={0}
-      className={`group relative flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-200 border ${
+      className={`group relative flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer border transition-all duration-150 ${
         isActive 
-          ? 'bg-neutral-900 border-neutral-800/50' 
-          : 'border-transparent hover:bg-neutral-900/50 hover:border-neutral-800/30'
+          ? 'bg-orange-50 border-orange-200/60' 
+          : 'border-transparent hover:bg-gray-50 hover:border-gray-200'
       }`}
       onClick={() => onClick(chat.id)}
     >
+      {/* Active left accent */}
+      {isActive && (
+        <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] bg-orange-400 rounded-r-full" />
+      )}
       <MessageSquare className={`size-3.5 flex-shrink-0 mt-0.5 transition-colors ${
-        isActive ? 'text-neutral-400' : 'text-neutral-600 group-hover:text-neutral-500'
+        isActive ? 'text-orange-600' : 'text-gray-300 group-hover:text-gray-500'
       }`} />
       
-      <div className="flex-1 min-w-0 pr-6">
-        {/* MODIFICACIÓN: Se eliminó el div del timestamp y el justify-between */}
-        <div className="flex items-center gap-2">
-          <div className={`text-[13px] truncate transition-colors leading-tight font-medium ${
-            isActive ? 'text-neutral-200' : 'text-neutral-400 group-hover:text-neutral-300'
-          }`}>
-            {chat.title}
-          </div>
+      <div className="flex-1 min-w-0">
+        <div className={`text-[13px] truncate transition-colors leading-tight font-semibold ${
+          isActive ? 'text-gray-900' : 'text-gray-700 group-hover:text-gray-900'
+        }`}>
+          {chat.title}
         </div>
         
-        <div className="text-[12px] text-neutral-500 truncate mt-0.5">
+        <div className="text-[12px] text-gray-500 truncate mt-0.5 leading-relaxed">
           {chat.preview}
         </div>
         
         {chat.isAdminHistory && (
-          <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium">
+          <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-orange-100 text-orange-700 border border-orange-200/70 px-2 py-0.5 text-[10px] font-semibold">
             Historial de usuario
           </div>
         )}
@@ -106,7 +107,7 @@ export function ChatSidebar({
   const renderList = (list: Chat[], emptyLabel: string) => {
     if (list.length === 0) {
       return (
-        <div className="p-8 text-center text-neutral-600 text-xs">
+        <div className="p-8 text-center text-gray-400 text-xs">
           {emptyLabel}
         </div>
       );
@@ -130,7 +131,7 @@ export function ChatSidebar({
     <>
       {/* Mobile Overlay */}
       <div 
-        className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity duration-300 ${
+        className={`fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-40 md:hidden transition-opacity duration-300 ${
           !sidebarCollapsed ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
         onClick={onToggleSidebar}
@@ -139,7 +140,7 @@ export function ChatSidebar({
       
       {/* Sidebar Container */}
       <aside 
-        className={`fixed md:relative inset-y-0 left-0 z-70 flex-shrink-0 h-full bg-neutral-950 border-r border-neutral-800/30 overflow-hidden transition-all duration-300 ease-in-out ${
+        className={`fixed md:relative inset-y-0 left-0 z-70 flex-shrink-0 h-full bg-white border-r border-gray-100 overflow-hidden transition-all duration-300 ease-in-out ${
           sidebarCollapsed 
             ? '-translate-x-full md:translate-x-0 md:w-0 md:border-r-0' 
             : 'translate-x-0 w-[85vw] md:w-64 md:opacity-100'
@@ -148,16 +149,15 @@ export function ChatSidebar({
         <div className="flex flex-col h-full w-full md:min-w-[16rem]">
           
           {/* Header */}
-          <div className="p-2.5 border-b border-neutral-800/30" style={{
-            // Hacer la misma altura que el navbar (incluye safe-area)
+          <div className="px-3 flex items-center border-b border-gray-100 bg-white" style={{
             height: 'calc(56px + env(safe-area-inset-top))',
             paddingTop: 'env(safe-area-inset-top)'
           }}>
             <button 
               onClick={onNewChat}
-              className="flex items-center w-full h-full bg-transparent hover:bg-neutral-900 text-neutral-300 hover:text-white text-sm font-medium transition-all duration-200 rounded-lg border border-neutral-800/50 hover:border-neutral-700 justify-start px-3 shadow-sm hover:shadow-md"
+              className="flex items-center w-full h-9 bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] active:scale-[0.98] text-white hover:text-white text-sm font-semibold tracking-tight transition-all duration-150 rounded-lg justify-center gap-2 px-4 border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md"
             >
-              <Plus className="mr-2 size-4 text-neutral-400" />
+              <Plus className="size-4" />
               Nuevo chat
             </button>
           </div>
@@ -167,7 +167,7 @@ export function ChatSidebar({
             {isAdmin ? (
               <div className="space-y-3 pb-4">
                 <div>
-                  <div className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-neutral-500 font-bold opacity-80">
+                  <div className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-gray-400 font-semibold">
                     Mis chats
                   </div>
                   {renderList(personalChats, 'Aún no hay conversaciones propias')}
@@ -175,9 +175,9 @@ export function ChatSidebar({
                 
                 {adminHistories.length > 0 && (
                   <div>
-                    <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-neutral-500 font-bold opacity-80 flex items-center justify-between group">
+                    <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-gray-400 font-semibold flex items-center justify-between group">
                       <span>Historiales usuarios</span>
-                      <span className="bg-neutral-900 text-neutral-500 px-1.5 py-0.5 rounded text-[9px] group-hover:text-neutral-300 transition-colors">
+                      <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded text-[9px] group-hover:text-gray-700 transition-colors">
                         {adminHistories.length}
                       </span>
                     </div>
@@ -191,27 +191,27 @@ export function ChatSidebar({
           </div>
 
           {/* User Profile - Fixed at Bottom */}
-          <div className="p-2.5 border-t border-neutral-800/30 bg-neutral-950 z-10">
-            <div className="flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg bg-neutral-900/40 hover:bg-neutral-900/80 border border-neutral-800/30 transition-colors duration-200 group">
-              <div className="flex-shrink-0 size-8 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-inner">
-                <User className="size-4 text-white" />
+          <div className="px-3 py-3 border-t border-gray-100 bg-white z-10">
+            <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl bg-white border border-gray-200 hover:border-gray-300 transition-colors duration-200 group shadow-[0_1px_2px_rgba(17,29,72,0.06)]">
+              <div className="flex-shrink-0 size-7 rounded-lg bg-orange-100 flex items-center justify-center">
+                <User className="size-3.5 text-orange-600" />
               </div>
               
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-neutral-200 truncate group-hover:text-white transition-colors">
+                <div className="text-[13px] font-semibold text-gray-900 truncate leading-tight">
                   {user?.name || user?.email || 'Usuario'}
                 </div>
-                <div className="text-xs text-neutral-500 truncate group-hover:text-neutral-400 transition-colors">
+                <div className="text-[11px] text-gray-500 truncate leading-tight">
                   {isAdmin ? 'Administrador' : 'Operador'}
                 </div>
               </div>
 
-              {/* Botones de acción */}
+              {/* Action buttons */}
               <div className="flex items-center gap-0.5">
                 {isAdmin && (
                   <button
                     onClick={onOpenAdmin}
-                    className="size-7 flex items-center justify-center hover:bg-neutral-800 hover:text-emerald-400 text-neutral-500 transition-all rounded-md"
+                    className="size-6 flex items-center justify-center hover:bg-[#1e3a8a]/10 hover:text-[#f5831f] text-[#1e3a8a] transition-all rounded-md"
                     title="Panel Admin"
                   >
                     <Shield className="size-3.5" />
@@ -221,7 +221,7 @@ export function ChatSidebar({
                 {!isAdmin && (
                   <button
                     onClick={onOpenProfile}
-                    className="size-7 flex items-center justify-center hover:bg-neutral-800 hover:text-neutral-200 text-neutral-500 transition-all rounded-md"
+                    className="size-6 flex items-center justify-center hover:bg-[#1e3a8a]/10 hover:text-[#f5831f] text-[#1e3a8a] transition-all rounded-md"
                     title="Mi cuenta"
                   >
                     <Settings className="size-3.5" />
@@ -230,7 +230,7 @@ export function ChatSidebar({
                 
                 <button
                   onClick={logout}
-                  className="size-7 flex items-center justify-center hover:bg-red-950/30 hover:text-red-400 text-neutral-500 transition-all rounded-md"
+                  className="size-6 flex items-center justify-center hover:bg-[#1e3a8a]/10 hover:text-[#f5831f] text-[#1e3a8a] transition-all rounded-md"
                   title="Cerrar sesión"
                 >
                   <LogOut className="size-3.5" />

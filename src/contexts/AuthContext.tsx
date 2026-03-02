@@ -37,7 +37,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+const _envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
+const _mode = (import.meta.env as Record<string, string | undefined>).MODE ?? 'production';
+const API_BASE = _envApi ?? (_mode === 'development' ? 'http://localhost:3000' : '/api');
 
 // Movemos esta función fuera del componente ya que es una utilidad pura 
 // y no depende del estado del componente.

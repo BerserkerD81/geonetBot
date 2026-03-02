@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { 
-  Bot, Check, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
-  Copy, RotateCcw, MapPin, Maximize2, Download, Eye, EyeOff, X, ImageOff, Loader2,
+  Bot, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
+  MapPin, Maximize2, Download, Eye, EyeOff, X, ImageOff, Loader2,
   Server, HardDrive, Network, Lock, Settings2, CheckCircle2, Circle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -102,6 +102,7 @@ interface ChatMessageProps {
   createdAt?: string;
   isLatest?: boolean;
   isAwaitingResponse?: boolean;
+  disableActions?: boolean;
   onRetry?: () => void;
   shouldAnimate?: boolean;
   messageId?: string;
@@ -120,21 +121,9 @@ interface ChatMessageProps {
 
 // --- UTILIDADES ---
 
-const API_BASE = (() => {
-  const envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
-  
-  if (envApi && envApi.trim()) {
-    // CORRECCIÓN: Si es ruta relativa (empieza con /) o ya tiene http, la dejamos tal cual.
-    if (envApi.startsWith('/') || envApi.startsWith('http')) {
-      return envApi;
-    }
-    // Solo agregamos protocolo si es un dominio a secas (ej: localhost:3000)
-    return `http://${envApi}`;
-  }
-  
-  const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:3000`;
-})();
+const _envApi = (import.meta.env as Record<string, string | undefined>).VITE_API_URL;
+const _mode = (import.meta.env as Record<string, string | undefined>).MODE ?? 'production';
+const API_BASE = _envApi ?? (_mode === 'development' ? 'http://localhost:3000' : '/api');
 
 const resolveImageUrl = (url?: string) => {
   if (!url) return null;
@@ -345,16 +334,16 @@ function SearchableSelect({
           role="combobox"
           disabled={disabled}
           aria-expanded={open}
-          className={`w-full justify-between h-10 bg-neutral-900 border-neutral-800 text-neutral-50 text-sm transition-all
-            ${open ? 'border-emerald-500/50 ring-2 ring-emerald-500/20' : 'hover:border-neutral-600'} 
+          className={`w-full justify-between h-10 bg-white border-gray-200 text-gray-900 text-sm transition-all
+            ${open ? 'border-emerald-500/60 ring-2 ring-emerald-500/25' : 'hover:border-gray-300'} 
             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           <span className="truncate text-left flex-1 font-medium">{display}</span>
-          {!disabled && <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-100 text-neutral-400" />}
+          {!disabled && <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-100 text-gray-400" />}
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] p-0 bg-neutral-900 border-neutral-700 shadow-xl"
+        className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-200 shadow-xl"
         align="start"
       >
         <Command className="bg-transparent">
@@ -364,10 +353,10 @@ function SearchableSelect({
           */}
           <CommandInput 
             placeholder={action.placeholder || 'Buscar...'} 
-            className="text-sm text-neutral-50 placeholder:text-neutral-500 [&_svg]:text-white [&_svg]:opacity-100" 
+            className="text-sm text-gray-900 placeholder:text-gray-400 bg-white border-b border-gray-200 [&_svg]:text-gray-400 [&_svg]:opacity-100" 
           />
-          <CommandList className="border-t border-neutral-800">
-            <CommandEmpty className="py-3 text-sm text-neutral-500 text-center">Sin resultados</CommandEmpty>
+          <CommandList className="border-t border-gray-200">
+            <CommandEmpty className="py-3 text-sm text-gray-500 text-center">Sin resultados</CommandEmpty>
             <CommandGroup>
               {action.options?.map((opt) => (
                 <CommandItem
@@ -377,7 +366,7 @@ function SearchableSelect({
                     onChange(val);
                     setOpen(false);
                   }}
-                  className="text-sm py-2.5 text-neutral-100 aria-selected:bg-neutral-800 aria-selected:text-white cursor-pointer"
+                  className="text-sm py-2.5 text-gray-900 hover:bg-gray-50 aria-selected:bg-gray-100 aria-selected:text-gray-900 cursor-pointer"
                 >
                   <CheckIcon className={`mr-2 h-4 w-4 text-emerald-400 ${value === opt ? 'opacity-100' : 'opacity-0'}`} />
                   <span className="truncate">{opt}</span>
@@ -435,17 +424,17 @@ function ImagePreview({
       {status === 'success' && (
         <>
            <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-3 cursor-pointer" onClick={onClick}>
-             <Button size="icon" variant="secondary" className="rounded-full bg-white/10 backdrop-blur-md border-white/20 hover:bg-white/20">
-               <Maximize2 className="size-4 text-white" />
+            <Button size="icon" variant="secondary" className="rounded-full bg-[#1e3a8a]/70 backdrop-blur-md border-[#1e3a8a]/60 hover:bg-[#2f5bbd]/80">
+               <Maximize2 className="size-4 text-orange-400" />
              </Button>
              {onDownload && (
                <Button 
                  size="icon" 
                  variant="secondary" 
-                 className="rounded-full bg-white/10 backdrop-blur-md border-white/20 hover:bg-white/20"
+                className="rounded-full bg-[#1e3a8a]/70 backdrop-blur-md border-[#1e3a8a]/60 hover:bg-[#2f5bbd]/80"
                  onClick={(e) => { e.stopPropagation(); onDownload(); }}
                >
-                 <Download className="size-4 text-white" />
+                 <Download className="size-4 text-orange-400" />
                </Button>
              )}
            </div>
@@ -463,7 +452,7 @@ export function ChatMessage({
   createdAt,
   isLatest = false,
   isAwaitingResponse = false,
-  onRetry,
+  disableActions = false,
   shouldAnimate = false,
   messageId = '',
   versions,
@@ -500,7 +489,6 @@ export function ChatMessage({
   }, [isLatest, content]); 
 
   // Estados
-  const [copied, setCopied] = useState(false);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, string[]>>({});
   const [odbNameToExternalId, setOdbNameToExternalId] = useState<Record<string, string>>({});
@@ -520,7 +508,7 @@ export function ChatMessage({
   const [displayedContent, setDisplayedContent] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
-  const disableActionButtons = !isUser && isLatest && (isAwaitingResponse || isSubmitting);
+  const disableActionButtons = disableActions || (!isUser && isLatest && (isAwaitingResponse || isSubmitting));
 
   // Estados de Procesamiento (Modal) - Corrección: Tipado explícito
   const [isProcessing, setIsProcessing] = useState(false);
@@ -704,14 +692,6 @@ export function ChatMessage({
         );
         setDynamicOptions((prev) => ({ ...prev, 'auth-odb-port': portOptions }));
       }
-    } catch (err) { console.error(err); }
-  };
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     } catch (err) { console.error(err); }
   };
 
@@ -980,7 +960,7 @@ const handleBulkSubmit = async () => {
     >
       <div className="w-full max-w-4xl flex gap-2 sm:gap-3 items-start">
         {!isUser && (
-          <div className="hidden sm:flex mt-1 h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-400/30 text-emerald-400" aria-label="Bot">
+          <div className="hidden sm:flex mt-1 h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#1e3a8a] border border-[#1e3a8a] text-orange-500" aria-label="Bot">
             <Bot className="size-4" />
           </div>
         )}
@@ -1075,7 +1055,7 @@ const handleBulkSubmit = async () => {
                                       }
                                     }}
                                     disabled={disableActionButtons}
-                                    className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20 rounded-lg active:scale-95 transition-transform"
+                                    className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md rounded-lg active:scale-95 transition-transform"
                                   >
                                     Seleccionar
                                   </Button>
@@ -1119,7 +1099,7 @@ const handleBulkSubmit = async () => {
                 <div className="mt-4 w-full flex flex-col items-center md:items-stretch px-1 sm:px-0">
                   <div className="w-full max-w-[22rem] md:max-w-none mx-auto space-y-3">
                     <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
-                      <span className="h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_0_3px_rgba(99,102,241,0.15)]" />
+                      <span className="h-2 w-2 rounded-full bg-[#1e3a8a] shadow-[0_0_0_3px_rgba(30,58,138,0.15)]" />
                       {hasClientSelectActions ? 'Clientes encontrados' : 'Instalaciones Pendientes'}
                     </div>
                     <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden shadow-sm w-full">
@@ -1154,7 +1134,7 @@ const handleBulkSubmit = async () => {
                                 size="sm" 
                                 onClick={() => inst.actionPayload && invokeAction(inst.actionPayload, inst.clientName)} 
                                 disabled={disableActionButtons}
-                                className="w-full md:w-auto h-9 md:h-7 text-xs font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-lg"
+                                className="w-full md:w-auto h-9 md:h-7 text-xs font-semibold bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md rounded-lg active:scale-95 transition-all"
                               >
                                 {(inst.actionPayload || '').toLowerCase().includes('seleccionar cliente') ? 'Seleccionar' : 'Autorizar'}
                               </Button>
@@ -1232,7 +1212,7 @@ const handleBulkSubmit = async () => {
                                     size="sm" 
                                     onClick={() => handleOnuSelect(onu, olt)} 
                                     disabled={disableActionButtons}
-                                    className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-lg shadow-emerald-900/20 rounded-lg active:scale-95 transition-transform"
+                                    className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md rounded-lg active:scale-95 transition-transform"
                                   >
                                     Usar
                                   </Button>
@@ -1253,7 +1233,14 @@ const handleBulkSubmit = async () => {
                   <div className="w-full flex justify-start">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full md:max-w-none">
                       {selectionButtonsToRender.map(a => (
-                        <Button key={a.id} size="sm" disabled={disableActionButtons} onClick={() => invokeAction(a.payload, a.label, a.id)} className="h-10 bg-neutral-100 text-neutral-900 hover:bg-white truncate border border-transparent hover:border-neutral-300 transition-all font-medium">
+                        <Button
+                          key={a.id}
+                          size="sm"
+                          variant="secondary"
+                          disabled={disableActionButtons}
+                          onClick={() => invokeAction(a.payload, a.label, a.id)}
+                          className="h-10 bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white truncate border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md transition-all font-medium rounded-lg"
+                        >
                           {a.label}
                         </Button>
                       ))}
@@ -1264,14 +1251,14 @@ const handleBulkSubmit = async () => {
                 {otherButtons.length > 0 && (
                   <div className="w-full flex justify-start">
                     <div className="flex flex-wrap gap-2 w-full md:max-w-none justify-start">
-                       {otherButtons.map(a => {
+                       {otherButtons.map((a) => {
                          if (a.type === 'link' && a.url) {
                           const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
                           if (disableActionButtons) {
                             return (
                               <span
                                 key={a.id}
-                                className="inline-flex items-center justify-center rounded-lg text-sm font-medium h-9 bg-neutral-900 text-neutral-600 px-4 border border-neutral-800 cursor-not-allowed select-none"
+                                className="inline-flex items-center justify-center rounded-lg text-sm font-medium h-9 bg-gray-200 text-gray-500 px-4 border border-gray-200 cursor-not-allowed select-none"
                                 aria-disabled="true"
                               >
                                 {a.label}
@@ -1281,14 +1268,21 @@ const handleBulkSubmit = async () => {
                           return (
                             <a 
                               key={a.id} href={href} target="_blank" rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center rounded-lg text-sm font-medium h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 px-4 hover:text-white transition-colors no-underline border border-neutral-700"
+                              className="inline-flex items-center justify-center rounded-lg text-sm font-medium h-9 bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white px-4 transition-colors no-underline border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md"
                             >
                               {a.label}
                             </a>
                           );
                         }
-                          return (
-                            <Button key={a.id} size="sm" disabled={disableActionButtons} onClick={() => invokeAction(a.payload, a.label, a.id)} className="h-9 bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white border border-neutral-700">
+                        return (
+                          <Button
+                            key={a.id}
+                            size="sm"
+                            variant="secondary"
+                            disabled={disableActionButtons}
+                            onClick={() => invokeAction(a.payload, a.label, a.id)}
+                            className="h-9 bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md"
+                          >
                             {a.label}
                           </Button>
                         );
@@ -1315,7 +1309,7 @@ const handleBulkSubmit = async () => {
                               <SearchableSelect 
                                 action={action} 
                                 value={inputValues[action.id] || ''} 
-                                disabled={isReadOnly || action.disabled}
+                                disabled={disableActions || isReadOnly || action.disabled}
                                 onChange={(val) => {
                                   setInputValues(p => ({ ...p, [action.id]: val }));
                                   if (action.id === 'auth-zone') fetchOdbOptionsForZone(val);
@@ -1328,20 +1322,20 @@ const handleBulkSubmit = async () => {
                                   value={inputValues[action.id] || ''} 
                                   type={action.id === 'wifi_pass' && !showWifiPass ? 'password' : 'text'}
                                   readOnly={isReadOnly}
-                                  disabled={isReadOnly || action.disabled}
+                                  disabled={disableActions || isReadOnly || action.disabled}
                                   onChange={(e) => {
                                     setInputValues(p => ({ ...p, [action.id]: e.target.value }));
                                     if (action.id === 'wifi_pass') setWifiError(null);
                                   }} 
                                   placeholder={action.placeholder} 
-                                  className={`h-10 bg-neutral-950/80 border-neutral-800 focus:border-emerald-500/60 focus-visible:ring-2 focus-visible:ring-emerald-500/20 ${action.id === 'wifi_pass' ? 'pr-10' : ''} ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500/30' : ''} ${isReadOnly ? 'opacity-60 cursor-not-allowed bg-neutral-900 text-neutral-400 select-none' : ''}`} 
+                                  className={`h-10 bg-neutral-950 border-neutral-700 text-neutral-100 placeholder:text-neutral-500 focus:border-emerald-500/70 focus-visible:ring-2 focus-visible:ring-emerald-500/25 focus-visible:outline-none ${action.id === 'wifi_pass' ? 'pr-10' : ''} ${action.id === 'wifi_pass' && wifiError ? 'border-red-500 focus-visible:ring-red-500/30' : ''} ${isReadOnly ? 'opacity-60 cursor-not-allowed bg-neutral-900 text-neutral-400 select-none' : ''}`} 
                                 />
                                 
                                 {action.id === 'wifi_pass' && (
                                   <button
                                     type="button"
                                     onClick={() => setShowWifiPass(!showWifiPass)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors focus:outline-none"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#1e3a8a] hover:text-[#f5831f] transition-colors focus:outline-none"
                                     tabIndex={-1}
                                   >
                                     {showWifiPass ? (
@@ -1361,9 +1355,9 @@ const handleBulkSubmit = async () => {
                           </div>
                         );
                       })}
-                      {submitAction && (
+                      {submitAction && !disableActions && (
                         <Button 
-                          className={`w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold mt-2 shadow-lg shadow-emerald-900/20 transition-all ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          className={`w-full h-11 bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white font-semibold mt-2 border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md transition-all ${submitAction.id === 'wifi_submit' && wifiError ? 'opacity-50 cursor-not-allowed' : ''}`}
                           onClick={handleBulkSubmit}
                           disabled={disableActionButtons || (submitAction.id === 'wifi_submit' && !!wifiError)}
                         >
@@ -1376,27 +1370,13 @@ const handleBulkSubmit = async () => {
               </div>
 
               {/* FOOTER */}
-              <div className="flex items-center gap-3 mt-4 flex-wrap">
-                {hasVersions && (
-                  <div className="flex items-center gap-1 bg-neutral-800/50 rounded-lg px-1.5 py-1 border border-neutral-800">
-                    <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'prev')} disabled={currentIdx === 0} className="h-6 w-6 p-0 hover:bg-neutral-700/50"><ChevronLeft className="size-3.5" /></Button>
-                    <span className="text-[10px] text-neutral-400 font-mono w-6 text-center">{currentIdx + 1}/{versions.length}</span>
-                    <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'next')} disabled={currentIdx === versions.length - 1} className="h-6 w-6 p-0 hover:bg-neutral-700/50"><ChevronRight className="size-3.5" /></Button>
-                  </div>
-                )}
-                
-                <div className="flex items-center gap-1.5 transition-opacity">
-                  <Button variant="ghost" size="sm" onClick={handleCopy} className="h-7 px-2 text-neutral-500 hover:text-white hover:bg-neutral-800 text-[11px]">
-                    {copied ? <Check className="size-3 mr-1.5 text-emerald-400" /> : <Copy className="size-3 mr-1.5" />}
-                    {copied ? 'Copiado' : 'Copiar'}
-                  </Button>
-                  {isLatest && onRetry && (
-                    <Button variant="ghost" size="sm" onClick={onRetry} className="h-7 px-2 text-neutral-500 hover:text-white hover:bg-neutral-800 text-[11px]">
-                      <RotateCcw className="size-3 mr-1.5" /> Reintentar
-                    </Button>
-                  )}
+              {hasVersions && (
+                <div className="flex items-center gap-1 mt-4 bg-neutral-800/50 rounded-lg px-1.5 py-1 border border-neutral-800">
+                  <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'prev')} disabled={currentIdx === 0} className="h-6 w-6 p-0 hover:bg-[#1e3a8a]/10 hover:text-[#f5831f]"><ChevronLeft className="size-3.5" /></Button>
+                  <span className="text-[10px] text-neutral-400 font-mono w-6 text-center">{currentIdx + 1}/{versions.length}</span>
+                  <Button variant="ghost" size="sm" onClick={() => onVersionChange?.(messageId, 'next')} disabled={currentIdx === versions.length - 1} className="h-6 w-6 p-0 hover:bg-[#1e3a8a]/10 hover:text-[#f5831f]"><ChevronRight className="size-3.5" /></Button>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
@@ -1412,7 +1392,7 @@ const handleBulkSubmit = async () => {
           onClick={() => setIsZoomed(false)}
         >
           <Button 
-            className="absolute top-4 right-4 rounded-full bg-neutral-800 hover:bg-neutral-700 text-white z-[101] size-10 border border-neutral-700"
+            className="absolute top-4 right-4 rounded-full bg-gradient-to-b from-[#2f3fa0]/90 to-[#1f2a6d]/90 hover:from-[#3a4ec0]/95 hover:to-[#24317c]/95 text-orange-200 hover:text-orange-100 z-[101] size-10 border border-white/15 shadow-[0_10px_20px_rgba(31,42,109,0.25)] backdrop-blur-md"
             size="icon"
             onClick={(e) => { e.stopPropagation(); setIsZoomed(false); }}
           >
@@ -1429,7 +1409,7 @@ const handleBulkSubmit = async () => {
           <div className="absolute bottom-8 flex gap-4 z-[101]">
             <Button 
               onClick={(e) => { e.stopPropagation(); downloadImage(imageDataUrl); }}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/50"
+              className="bg-gradient-to-b from-[#2f3fa0]/90 to-[#1f2a6d]/90 hover:from-[#3a4ec0]/95 hover:to-[#24317c]/95 text-orange-200 hover:text-orange-100 border border-white/15 shadow-[0_10px_20px_rgba(31,42,109,0.25)] backdrop-blur-md"
             >
               <Download className="size-4 mr-2" /> Descargar Original
             </Button>

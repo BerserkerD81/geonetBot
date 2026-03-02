@@ -148,21 +148,21 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
   const isDisabled = (!message.trim() && !imageDataUrl) || isLoading || isProcessingImg;
 
   return (
-    <div className="w-full bg-neutral-950 px-4 pb-6 pt-2">
-      <div className="max-w-3xl mx-auto space-y-4">
+    <div className="w-full bg-white px-4 pb-5 pt-2">
+      <div className="max-w-3xl mx-auto space-y-3">
         
-        {/* Previsualización de Imagen (Estilo Card) */}
+        {/* Image Preview */}
         {imageDataUrl && (
-          <div className="group relative flex items-center gap-4 bg-neutral-900/40 p-3 rounded-xl border border-neutral-800 animate-in fade-in slide-in-from-bottom-3 duration-300">
-            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-neutral-700 shadow-sm">
+          <div className="group relative flex items-center gap-3 bg-gray-50 p-3 rounded-xl border border-gray-200 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-gray-200 shadow-sm">
                <img src={imageDataUrl} alt="Preview" className="h-full w-full object-cover" />
             </div>
             
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-neutral-200 truncate flex items-center gap-2">
-                <FileImage className="size-4 text-emerald-500" /> Imagen adjunta
+              <p className="text-sm font-medium text-gray-700 truncate flex items-center gap-1.5">
+                <FileImage className="size-3.5 text-orange-500" /> Imagen adjunta
               </p>
-              <p className="text-xs text-neutral-500 mt-0.5">Lista para enviar (Comprimida)</p>
+              <p className="text-xs text-gray-400 mt-0.5">Lista para enviar (Comprimida)</p>
             </div>
 
             <Button
@@ -170,22 +170,22 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
               variant="ghost"
               size="icon"
               onClick={clearImage}
-              className="text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors h-8 w-8 rounded-full"
+              className="text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-colors h-7 w-7 rounded-lg"
             >
               <X className="size-4" />
             </Button>
           </div>
         )}
 
-        {/* Input Container Principal */}
+        {/* Input Container */}
         <div 
           className={`
-            relative flex flex-col sm:flex-row items-end gap-2 p-2 sm:p-3 rounded-3xl transition-all duration-300 ease-out border shadow-sm
+            relative flex flex-col sm:flex-row items-end gap-2 p-2 sm:p-2.5 rounded-2xl transition-all duration-200 ease-out border
             ${isDragging 
-              ? 'border-emerald-500/50 bg-emerald-950/10 ring-4 ring-emerald-500/10' 
+              ? 'border-orange-400 bg-orange-50/80 ring-4 ring-orange-400/10' 
               : isFocused 
-                ? 'border-neutral-700 bg-neutral-900 ring-2 ring-neutral-800/50 shadow-lg shadow-black/20' 
-                : 'border-neutral-800 bg-neutral-900/60 hover:border-neutral-700'
+                ? 'border-orange-300 bg-white ring-2 ring-orange-100/80 shadow-md shadow-orange-100/40' 
+                : 'border-gray-200 bg-white hover:border-gray-300 shadow-sm'
             }
           `}
           onDragOver={handleDragOver}
@@ -194,9 +194,9 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
         >
           
           {/* Overlay Drag & Drop */}
-          <div className={`absolute inset-0 z-20 rounded-3xl bg-neutral-900/90 backdrop-blur-sm border-2 border-dashed border-emerald-500 flex flex-col items-center justify-center transition-opacity duration-200 pointer-events-none ${isDragging ? 'opacity-100' : 'opacity-0'}`}>
-             <Paperclip className="size-8 text-emerald-500 mb-2 animate-bounce" />
-             <p className="text-emerald-400 font-medium">Suelta la imagen aquí</p>
+          <div className={`absolute inset-0 z-20 rounded-3xl bg-white/90 backdrop-blur-sm border-2 border-dashed border-orange-400 flex flex-col items-center justify-center transition-opacity duration-200 pointer-events-none ${isDragging ? 'opacity-100' : 'opacity-0'}`}>
+             <Paperclip className="size-8 text-orange-500 mb-2 animate-bounce" />
+             <p className="text-orange-500 font-medium">Suelta la imagen aquí</p>
           </div>
 
           <Textarea
@@ -208,7 +208,7 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             placeholder="Escribe un mensaje..."
-            className="flex-1 min-h-[44px] max-h-[200px] w-full bg-transparent border-0 text-neutral-100 placeholder:text-neutral-500 focus-visible:ring-0 text-[15px] resize-none py-3 px-3 sm:py-2.5"
+            className="flex-1 min-h-[44px] max-h-[200px] w-full bg-transparent border-0 text-gray-800 placeholder:text-gray-400 focus-visible:ring-0 text-[15px] resize-none py-3 px-3 sm:py-2.5"
             rows={1}
             disabled={isLoading || isProcessingImg}
           />
@@ -223,7 +223,7 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
                 size="icon"
                 disabled={isLoading || isProcessingImg}
                 onClick={() => fileInputFileRef.current?.click()}
-                className="h-9 w-9 rounded-full text-neutral-400 hover:text-emerald-400 hover:bg-emerald-400/10 transition-all active:scale-95"
+                className="h-9 w-9 rounded-full text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-all active:scale-95"
                 title="Galería"
               >
                 <ImageIcon className="size-5" />
@@ -235,7 +235,7 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
                 size="icon"
                 disabled={isLoading || isProcessingImg}
                 onClick={() => fileInputCameraRef.current?.click()}
-                className="h-9 w-9 rounded-full text-neutral-400 hover:text-emerald-400 hover:bg-emerald-400/10 transition-all active:scale-95"
+                className="h-9 w-9 rounded-full text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-all active:scale-95"
                 title="Cámara"
               >
                 <Camera className="size-5" />
@@ -248,10 +248,10 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
               onClick={handleSubmit}
               disabled={isDisabled}
               className={`
-                h-9 px-4 rounded-full font-medium transition-all duration-300 shadow-md
+                h-9 px-4 rounded-xl font-semibold text-sm transition-all duration-200 shadow-md
                 ${isDisabled 
-                  ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' 
-                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20 hover:shadow-emerald-500/20 active:scale-95 w-auto'
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none' 
+                  : 'bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md active:scale-[0.97]'
                 }
               `}
             >
@@ -272,10 +272,10 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
         </div>
 
         {/* Hints Footer */}
-        <div className="hidden sm:flex justify-center gap-6 text-[11px] text-neutral-600 font-medium select-none opacity-60 hover:opacity-100 transition-opacity">
-          <span className="flex items-center gap-1.5"><kbd className="font-sans bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 text-neutral-400">↵</kbd> enviar</span>
-          <span className="flex items-center gap-1.5"><kbd className="font-sans bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 text-neutral-400">shift + ↵</kbd> nueva línea</span>
-          <span className="flex items-center gap-1.5">Arrastra o pega imágenes</span>
+        <div className="hidden sm:flex justify-center gap-5 text-[11px] text-gray-400 font-medium select-none">
+          <span className="flex items-center gap-1.5"><kbd>↵</kbd> enviar</span>
+          <span className="flex items-center gap-1.5"><kbd>shift + ↵</kbd> nueva línea</span>
+          <span>Arrastra o pega imágenes</span>
         </div>
 
       </div>

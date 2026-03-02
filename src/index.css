@@ -1,137 +1,185 @@
-@import "tailwindcss";/* En tu CSS global */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 5px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: #404040; /* neutral-700 */
-  border-radius: 20px;
-}
+/* Inter + DM Sans — Crisp, professional, modern */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+
+@import "tailwindcss";
+
+/* ================================================================
+   GEONET BOT — DESIGN SYSTEM v2
+   CSS-only theming via Tailwind v4 custom property overrides.
+
+  Brand:   Navy #1e3a8a / #0f244d | Orange #f5831f
+  Style:   Unify-inspired — crisp white cards, deep navy text,
+        orange accent, pixel-perfect borders
+   ================================================================ */
+
+
+/* ----------------------------------------------------------------
+   1. GEONET COLOR PALETTE — Tailwind v4 CSS variable overrides
+   ---------------------------------------------------------------- */
 :root {
-  --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
-  --destructive: #d4183d;
-  --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
-  --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* ── ORANGE: Geonet Brand Primary ── */
+  --color-orange-50:  #fff8f0;
+  --color-orange-100: #ffecd4;
+  --color-orange-200: #ffd5a0;
+  --color-orange-300: #ffb660;
+  --color-orange-400: #f8942b;
+  --color-orange-500: #f5831f;   /* ← Geonet Orange */
+  --color-orange-600: #d96a0d;
+  --color-orange-700: #b45309;
+  --color-orange-800: #923d0b;
+  --color-orange-900: #79330d;
+  --color-orange-950: #421704;
+
+    /* ── GRAY: Navy-tinted (Geonet identity throughout all UI text) */
+      --color-gray-50:  #f4f6ff;   /* App/page background */
+      --color-gray-100: #e8edff;   /* Subtle hover / card bg */
+      --color-gray-200: #d6def8;   /* Default border */
+      --color-gray-300: #b8c4eb;   /* Strong border */
+      --color-gray-400: #96a5d7;   /* Placeholder / disabled */
+      --color-gray-500: #7487c3;   /* Secondary/muted text */
+      --color-gray-600: #5d71b0;   /* Body text (lighter contexts) */
+      --color-gray-700: #455a92;   /* Body text */
+      --color-gray-800: #304474;   /* Subheadings */
+      --color-gray-900: #1e3a8a;   /* Headings / primary text */
+      --color-gray-950: #11234d;   /* Near-black navy */
+
+    /* ── NEUTRAL: Inverted for light theme compatibility ── */
+    --color-neutral-50:  #11234d;
+    --color-neutral-100: #1e3a8a;
+    --color-neutral-200: #304474;
+    --color-neutral-300: #455a92;
+    --color-neutral-400: #5d71b0;
+    --color-neutral-500: #7487c3;
+    --color-neutral-600: #96a5d7;
+    --color-neutral-700: #b8c4eb;
+    --color-neutral-800: #d6def8;
+    --color-neutral-900: #e8edff;
+    --color-neutral-950: #f4f6ff;
+
+  /* ── SEMANTIC COLORS (keep defaults) ── */
+  /* Emerald stays green — used for WispHub/SmartOLT status dots  */
+  /* Red stays red — used for errors and delete actions           */
+  /* Blue stays blue — used for cloud/server badges               */
+
+  /* Red: slightly softer on light bg */
+  --color-red-50:  #fff5f5;
+  --color-red-100: #ffe0e0;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+
+  /* Green for success */
+  --color-green-50:  #f0fdf4;
+  --color-green-100: #dcfce7;
+  --color-green-600: #16a34a;
+
+  /* Blue for info/cloud badges */
+  --color-blue-50:  #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-600: #2563eb;
+
+  /* Navy for admin role badges */
+  --color-purple-50:  #e8edff;
+  --color-purple-100: #dfe6ff;
+  --color-purple-600: #1e3a8a;
+
+
+  /* ================================================================
+     2. SHADCN/UI SEMANTIC TOKENS
+     Used by components in ui/* (Button, Input, Card, etc.)
+     ================================================================ */
+  --background:             #f4f6ff;
+  --foreground:             #11234d;
+  --card:                   #ffffff;
+  --card-foreground:        #11234d;
+  --popover:                #ffffff;
+  --popover-foreground:     #11234d;
+  --primary:                #f5831f;
+  --primary-foreground:     #1e3a8a;
+  --secondary:              #e8edff;
+  --secondary-foreground:   #1e3a8a;
+  --muted:                  #e8edff;
+  --muted-foreground:       #5d71b0;
+  --accent:                 #fff0df;
+  --accent-foreground:      #b55a0a;
+  --destructive:            #dc2626;
+  --destructive-foreground: #11234d;
+  --border:                 #d6def8;
+  --input:                  transparent;
+  --input-background:       #eef2ff;
+  --ring:                   #1e3a8a;
+  --radius:                 0.5rem;
+  --font-size:              16px;
+  --font-weight-medium:     500;
+  --font-weight-normal:     400;
+
+  /* shadows */
+  --shadow-card:    0 1px 3px rgba(17,35,77,0.08), 0 4px 12px rgba(17,35,77,0.05);
+  --shadow-elevated: 0 4px 16px rgba(17,35,77,0.12), 0 1px 4px rgba(17,35,77,0.06);
+  --shadow-orange:  0 4px 16px rgba(245,131,31,0.22), 0 1px 4px rgba(245,131,31,0.12);
+
+  /* Sidebar */
+  --sidebar:                      #ffffff;
+  --sidebar-foreground:           #11234d;
+  --sidebar-primary:              #f5831f;
+  --sidebar-primary-foreground:   #11234d;
+  --sidebar-accent:               #fff4e8;
+  --sidebar-accent-foreground:    #b55a0a;
+  --sidebar-border:               #d6def8;
+  --sidebar-ring:                 #1e3a8a;
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
-}
-
+/* Tailwind v4 uses --color-* prefixed aliases */
 :root {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-input-background: var(--input-background);
-  --color-switch-background: var(--switch-background);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
+  --color-background:                 var(--background);
+  --color-foreground:                 var(--foreground);
+  --color-card:                       var(--card);
+  --color-card-foreground:            var(--card-foreground);
+  --color-popover:                    var(--popover);
+  --color-popover-foreground:         var(--popover-foreground);
+  --color-primary:                    var(--primary);
+  --color-primary-foreground:         var(--primary-foreground);
+  --color-secondary:                  var(--secondary);
+  --color-secondary-foreground:       var(--secondary-foreground);
+  --color-muted:                      var(--muted);
+  --color-muted-foreground:           var(--muted-foreground);
+  --color-accent:                     var(--accent);
+  --color-accent-foreground:          var(--accent-foreground);
+  --color-destructive:                var(--destructive);
+  --color-destructive-foreground:     var(--destructive-foreground);
+  --color-border:                     var(--border);
+  --color-input:                      var(--input);
+  --color-input-background:           var(--input-background);
+  --color-ring:                       var(--ring);
+  --radius-sm:  calc(var(--radius) - 4px);
+  --radius-md:  calc(var(--radius) - 2px);
+  --radius-lg:  var(--radius);
+  --radius-xl:  calc(var(--radius) + 4px);
+  --color-sidebar:                    var(--sidebar);
+  --color-sidebar-foreground:         var(--sidebar-foreground);
+  --color-sidebar-primary:            var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-accent:             var(--sidebar-accent);
+  --color-sidebar-accent-foreground:  var(--sidebar-accent-foreground);
+  --color-sidebar-border:             var(--sidebar-border);
+  --color-sidebar-ring:               var(--sidebar-ring);
 }
+
+
+/* ================================================================
+   3. BASE STYLES
+   ================================================================ */
 
 @layer base {
   * {
     border-color: var(--color-border);
     outline-color: var(--color-ring);
+  }
+
+  html {
+    font-size: var(--font-size);
+    font-family: 'Inter', 'DM Sans', system-ui, -apple-system, sans-serif;
   }
 
   body {
@@ -140,75 +188,401 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-}
 
-/**
- * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
- */
-@layer base {
+  ::selection {
+    background-color: rgba(245, 131, 31, 0.15);
+    color: #11234d;
+  }
+
+  :focus-visible {
+    outline: 2px solid #f5831f;
+    outline-offset: 2px;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: #11234d;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.35;
+  }
+
+  /* Typography scale */
   :where(:not(:has([class*=' text-']), :not(:has([class^='text-'])))) {
-    h1 {
-      font-size: var(--text-2xl);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h2 {
-      font-size: var(--text-xl);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h3 {
-      font-size: var(--text-lg);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h4 {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    label {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    button {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    input {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-normal);
-      line-height: 1.5;
-    }
+    h1     { font-size: var(--text-2xl); font-weight: 700; }
+    h2     { font-size: var(--text-xl);  font-weight: 600; }
+    h3     { font-size: var(--text-lg);  font-weight: 600; }
+    h4     { font-size: var(--text-base); font-weight: 600; }
+    label  { font-size: var(--text-sm);  font-weight: 500; }
+    button { font-size: var(--text-sm);  font-weight: 500; }
+    input  { font-size: var(--text-sm);  font-weight: 400; }
   }
 }
 
-html {
-  font-size: var(--font-size);
-}
 
-/* Custom scrollbar styles */
+/* ================================================================
+   4. SCROLLBARS — Subtle, navy-tinted
+   ================================================================ */
+
+.custom-scrollbar::-webkit-scrollbar,
 .scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 
+.custom-scrollbar::-webkit-scrollbar-track,
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
 }
 
+.custom-scrollbar::-webkit-scrollbar-thumb,
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgb(64 64 64);
-  border-radius: 3px;
+  background-color: #d5cdef;
+  border-radius: 20px;
 }
 
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgb(82 82 82);
+  background-color: #96a5d7;
 }
+
+
+/* ================================================================
+   5. COMPONENT OVERRIDES — Geonet Design Language
+   ================================================================ */
+
+/* ── Base card feel ──────────────────────────────────────────── */
+.rounded-xl,
+.rounded-2xl {
+  box-shadow: 0 1px 3px rgba(17,35,77,0.08), 0 2px 8px rgba(17,35,77,0.05);
+}
+
+/* ── White text in ALL orange buttons ───────────────────────── */
+.bg-orange-500,
+.bg-orange-600 {
+  color: #ffffff !important;
+}
+.hover\:bg-orange-600:hover,
+.hover\:bg-orange-500:hover {
+  color: #ffffff !important;
+}
+[class*="from-orange"] {
+  color: #ffffff;
+}
+button[class*="bg-orange-500"],
+button[class*="bg-orange-600"] {
+  background-color: #f5831f;
+  color: #ffffff !important;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: background-color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+}
+button[class*="bg-orange-500"]:hover {
+  background-color: #e07010 !important;
+  box-shadow: 0 4px 12px rgba(245,131,31,0.32);
+}
+button[class*="bg-orange-600"]:hover {
+  background-color: #c45d08 !important;
+  box-shadow: 0 4px 12px rgba(245,131,31,0.32);
+}
+button[class*="bg-orange-500"]:active,
+button[class*="bg-orange-600"]:active {
+  transform: scale(0.98);
+}
+
+/* ── Inputs: crisp, clear focus ring ───────────────────────── */
+input:focus,
+input:focus-within,
+textarea:focus,
+select:focus {
+  border-color: #f5831f !important;
+  box-shadow: 0 0 0 3px rgba(245, 131, 31, 0.12) !important;
+  outline: none;
+}
+
+/* ── Kbd: clean sans-serif pill ─────────────────────────────── */
+kbd {
+  font-family: 'Inter', 'DM Sans', system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  background: #e8edff;
+  border: 1px solid #cdd8ff;
+  border-radius: 5px;
+  color: #42569a;
+  padding: 2px 7px;
+  box-shadow: 0 1px 2px rgba(17,35,77,0.08);
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+aside {
+  background-color: #ffffff !important;
+  border-right: 1px solid #cdd8ff !important;
+}
+
+/* ── App header ─────────────────────────────────────────────── */
+header {
+  background-color: rgba(255, 255, 255, 0.97) !important;
+  border-bottom: 1px solid #cdd8ff !important;
+  box-shadow: 0 1px 4px rgba(17, 35, 77, 0.08) !important;
+}
+
+/* ── Modals / overlays stronger shadow ──────────────────────── */
+[class*="fixed inset-0"] .rounded-xl,
+[class*="fixed inset-0"] .rounded-2xl,
+[class*="absolute inset-0"] .rounded-xl,
+[class*="absolute inset-0"] .rounded-2xl {
+  box-shadow: 0 8px 32px rgba(17,35,77,0.14), 0 2px 8px rgba(17,35,77,0.07) !important;
+}
+
+/* ── Active sidebar item strip ──────────────────────────────── */
+[class*="bg-orange-50"][class*="border-orange"] {
+  background-color: rgba(245, 131, 31, 0.06) !important;
+  border-color: rgba(245, 131, 31, 0.22) !important;
+  position: relative;
+}
+[class*="bg-orange-50"][class*="border-orange"]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2.5px;
+  background-color: #f5831f;
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Suggestion card hover glow ─────────────────────────────── */
+.group:hover > [class*="rounded-xl"],
+.group:hover > [class*="rounded-2xl"] {
+  box-shadow: 0 0 0 1.5px rgba(245,131,31,0.22), 0 4px 16px rgba(245,131,31,0.08);
+}
+
+/* ── Bot icon glow ──────────────────────────────────────────── */
+[class*="from-orange-500 to-orange-600"][class*="rounded-2xl"] {
+  box-shadow: 0 8px 28px rgba(245,131,31,0.35), 0 2px 8px rgba(245,131,31,0.18);
+}
+
+/* ── User avatar in sidebar ─────────────────────────────────── */
+[class*="from-orange-500 to-orange-600"][class*="rounded-lg"] {
+  box-shadow: 0 2px 8px rgba(245,131,31,0.28);
+}
+
+/* ── Ghost orange buttons ───────────────────────────────────── */
+button[class*="hover:bg-orange-50"]:hover {
+  background-color: rgba(245, 131, 31, 0.06) !important;
+  color: #d96a0d !important;
+}
+
+/* ── Logout hover ───────────────────────────────────────────── */
+[title="Cerrar sesión"]:hover {
+  background-color: #fff5f5 !important;
+  color: #dc2626 !important;
+}
+
+/* ── Admin / settings hover ─────────────────────────────────── */
+[title="Panel Admin"]:hover,
+[title="Mi cuenta"]:hover {
+  background-color: #fff4e8 !important;
+  color: #f5831f !important;
+}
+
+/* ── Chat message bubbles ───────────────────────────────────── */
+[class*="bg-orange-500"][class*="rounded-2xl"] {
+  color: #ffffff !important;
+}
+
+/* ── Panels: light background ───────────────────────────────── */
+.absolute.inset-0.z-30 {
+  background-color: #f3f6ff !important;
+}
+
+/* ── Processing modal top bar ───────────────────────────────── */
+[class*="from-orange-500 to-orange-600"][class*="h-1"],
+[class*="from-orange-500 to-amber-500"][class*="h-1"] {
+  background: linear-gradient(to right, #f5831f, #ffb347) !important;
+}
+
+/* ── Dividers ───────────────────────────────────────────────── */
+.h-px,
+hr {
+  background-color: #cdd8ff;
+  border: none;
+}
+
+/* ── Date separators ──────────────────────────────────────────── */
+[class*="rounded-full border border-gray-200"] {
+  background-color: #ffffff;
+  border-color: #cdd8ff !important;
+  color: #5d71b0 !important;
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(17,35,77,0.07);
+}
+
+/* ── Search highlights ──────────────────────────────────────── */
+mark {
+  background-color: rgba(245, 131, 31, 0.18);
+  color: #c45d08;
+  border-radius: 3px;
+  padding: 1px 2px;
+  font-weight: 600;
+}
+
+/* ── Search overlay ─────────────────────────────────────────── */
+[class*="bg-gray-900/50"],
+[class*="bg-black/"] {
+  background-color: rgba(12, 21, 52, 0.48) !important;
+  backdrop-filter: blur(6px) !important;
+}
+
+/* ── Loading spinner ────────────────────────────────────────── */
+[class*="border-t-transparent"][class*="border-orange-500"],
+[class*="animate-spin"][class*="border-orange"] {
+  border-color: #cdd8ff;
+  border-top-color: #f5831f;
+}
+
+/* ── Section count badges ───────────────────────────────────────── */
+[class*="text-\[9px\]"][class*="rounded"],
+[class*="text-\[10px\]"][class*="bg-gray-100"],
+[class*="text-\[10px\]"][class*="bg-neutral-800"] {
+  background-color: #e8edff !important;
+  color: #42569a !important;
+  font-weight: 600 !important;
+  border-color: #cdd8ff !important;
+}
+
+/* ── Admin badge ────────────────────────────────────────────── */
+[class*="bg-purple-50"][class*="text-purple-600"],
+[class*="bg-purple-100"][class*="text-purple-600"] {
+  background-color: #e8edff !important;
+  color: #1e3a8a !important;
+  border-color: #cdd8ff !important;
+}
+
+/* ── Admin user-history pill ────────────────────────────────── */
+[class*="bg-orange-50"][class*="text-orange-600"][class*="rounded-full"],
+[class*="bg-orange-400/10"][class*="text-orange-400"] {
+  background-color: rgba(245, 131, 31, 0.08) !important;
+  color: #d96a0d !important;
+  border-color: rgba(245, 131, 31, 0.2) !important;
+  font-weight: 600;
+}
+
+/* ── Login page bg ──────────────────────────────────────────── */
+body:has(.min-h-screen) {
+  background: #f3f6ff;
+}
+.min-h-screen[class*="from-gray-50"] {
+  background: linear-gradient(135deg, #e8edff 0%, rgba(240,248,255,0.35) 50%, #e8edff 100%) !important;
+}
+
+/* ── SearchModal selected result ────────────────────────────── */
+[class*="bg-orange-50"][class*="border-orange-200"] {
+  background-color: rgba(245, 131, 31, 0.05) !important;
+  border-color: rgba(245, 131, 31, 0.2) !important;
+}
+
+/* ── Popover / combobox ─────────────────────────────────────── */
+[class*="bg-gray-50"][class*="border-gray-200"][class*="shadow-xl"] {
+  background-color: #ffffff !important;
+  border-color: #cdd8ff !important;
+  box-shadow: 0 8px 32px rgba(17,35,77,0.12), 0 2px 8px rgba(17,35,77,0.06) !important;
+}
+
+/* ── SmartOLT table rows ────────────────────────────────────── */
+[class*="grid"][class*="gap-2"][class*="bg-gray-100"],
+[class*="grid"][class*="gap-2"][class*="bg-neutral-800"] {
+  background-color: #f3f6ff !important;
+  color: #42569a !important;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+[class*="divide-y"] > div:hover {
+  background-color: rgba(245,131,31,0.025);
+  transition: background-color 150ms ease;
+}
+
+/* ── Mobile overlay ─────────────────────────────────────────── */
+[class*="bg-black/60"][class*="backdrop-blur-sm"] {
+  background-color: rgba(12, 21, 52, 0.42) !important;
+}
+
+/* ── Typing cursor  ─────────────────────────────────────────── */
+[class*="bg-orange-400"][class*="animate-pulse"][class*="rounded-sm"] {
+  background-color: #f5831f !important;
+  opacity: 0.85;
+}
+
+/* ── Admin panel section headers ────────────────────────────── */
+[class*="border-b border-gray-200 bg-white"] {
+  border-bottom-color: #cdd8ff !important;
+  background-color: #ffffff !important;
+}
+
+/* ── Toasts ─────────────────────────────────────────────────── */
+[class*="bg-orange-50 border-orange-300"],
+[class*="bg-emerald-500/10 border-emerald-500/50"] {
+  background-color: #fff4e8 !important;
+  border-color: rgba(245, 131, 31, 0.38) !important;
+}
+
+/* ── Read-only admin history banner ─────────────────────────── */
+[class*="bg-orange-50"][class*="border-orange-100"] {
+  background-color: rgba(245, 131, 31, 0.04) !important;
+  border-color: rgba(245, 131, 31, 0.1) !important;
+}
+
+/* ── Feedback notification toasts (AdminPanel) ──────────────── */
+[class*="fixed top-"][class*="border"][class*="bg-orange-400/10"] {
+  background-color: #fff4e8 !important;
+  border-color: rgba(245,131,31,0.35) !important;
+  box-shadow: 0 8px 24px rgba(17,29,72,0.12), 0 2px 6px rgba(17,29,72,0.06);
+  border-radius: 12px;
+}
+
+/* ================================================================
+   6. UTILITY CLASSES — Composable design primitives
+   ================================================================ */
+
+/* Card styles */
+.geonet-card {
+  background: #ffffff;
+  border: 1px solid #cdd8ff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(17,35,77,0.08), 0 2px 8px rgba(17,35,77,0.05);
+}
+
+.geonet-card-hover {
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+.geonet-card-hover:hover {
+  border-color: rgba(245,131,31,0.3);
+  box-shadow: 0 0 0 1px rgba(245,131,31,0.15), 0 4px 16px rgba(17,35,77,0.1);
+}
+
+/* Section label */
+.geonet-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5d71b0;
+}
+
+/* Orange CTA button */
+.geonet-btn-primary {
+  background-color: #f5831f;
+  color: #ffffff !important;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  transition: background-color 150ms, box-shadow 150ms, transform 100ms;
+}
+.geonet-btn-primary:hover {
+  background-color: #e07010;
+  box-shadow: 0 4px 14px rgba(245,131,31,0.30);
+}
+.geonet-btn-primary:active {
+  transform: scale(0.98);
+}
+
+/* Enforce no pure white text across the UI — except on deep backgrounds */
+/* Removed: .text-white override that conflicted with button text */
