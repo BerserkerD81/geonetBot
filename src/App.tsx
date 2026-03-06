@@ -478,9 +478,9 @@ function ChatApp() {
   // -------------------------------------------------------------------------
   // 5. ACCIONES ESPECÍFICAS
   // -------------------------------------------------------------------------
-  const handleActionSelect = (payload: string) => {
+  const handleActionSelect = async (payload: string) => {
     if (!payload.trim()) return;
-    handleSendMessage(payload.trim());
+    await handleSendMessage(payload.trim());
   };
 
   const handleReplaceMessage = async (messageId: string, payload: string) => {
@@ -972,7 +972,7 @@ function ChatApp() {
           createdAt={message.createdAt}
           metadata={message.metadata}
           highlighted={message.id === highlightedMessageId}
-          disableActions={!!currentChat?.isAdminHistory}
+          disableActions={!!currentChat?.isAdminHistory || isAwaitingResponse}
         />
       </div>
     );

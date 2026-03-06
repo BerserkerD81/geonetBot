@@ -83,9 +83,38 @@ type InstallationEntry = {
   actionPayload?: string;
 };
 
+type MonitorMetadata = {
+  clientName?: string;
+  clientIdServicio?: string | number;
+  ip?: string;
+  onuExternalId?: string;
+  refreshedAt?: string;
+  graphType?: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | string;
+  statusSummary?: string;
+  rx?: string;
+  tx?: string;
+  rut?: string;
+  plan?: string;
+  distanceOltOnu?: string;
+  onlineUptime?: string;
+  wisphubServiceStatus?: string;
+  lastInvoiceDate?: string;
+  lastInvoicePaid?: string;
+  signalValue?: string;
+  signal1310?: string;
+  signal1490?: string;
+  runningConfig?: string;
+  fullStatusInfo?: string;
+  signalGraphUrl?: string;
+  trafficGraphUrl?: string;
+  failedApis?: string[];
+  resyncResult?: { error?: string } | Record<string, unknown>;
+};
+
 type MessageMetadata = {
   smartoltAvailability?: SmartoltAvailability;
   installations?: InstallationEntry[];
+  monitor?: MonitorMetadata;
 };
 
 interface ChatMessageProps {
@@ -103,8 +132,8 @@ interface ChatMessageProps {
   currentVersion?: number;
   onVersionChange?: (messageId: string, direction: 'prev' | 'next') => void;
   actions?: ActionOption[];
-  onActionSelect?: (payload: string) => void;
-  onReplaceMessage?: (messageId: string, payload: string) => void;
+  onActionSelect?: (payload: string) => void | Promise<void>;
+  onReplaceMessage?: (messageId: string, payload: string) => void | Promise<void>;
   onSubmitAuth?: (collected: Record<string, string>) => boolean | void | Promise<boolean | void>;
   onSubmitWan?: (collected: Record<string, string>) => void | Promise<void>;
   onSubmitAction?: (payload: string, collected: Record<string, string>) => void | Promise<void>;
@@ -135,6 +164,110 @@ const normalizeSpeedProfile = (val: string) => {
   if (!match) return raw;
   const num = match[1].replace(/\.0+$/, '');
   return `${num}M`;
+};
+
+const toMonitorTextBlock = (value: any, maxLen = 5000): string | undefined => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (!s) return undefined;
+    return s.length > maxLen ? `${s.slice(0, maxLen)}\n...` : s;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  try {
+    const serialized = JSON.stringify(value, null, 2);
+    if (!serialized) return undefined;
+    return serialized.length > maxLen ? `${serialized.slice(0, maxLen)}\n...` : serialized;
+  } catch {
+    return String(value);
+  }
+};
+
+const toDbmString = (value: any): string | undefined => {
+  const txt = toMonitorTextBlock(value);
+  if (!txt) return undefined;
+  if (/dbm/i.test(txt)) return txt;
+  const num = Number(txt.replace(',', '.'));
+  if (!Number.isNaN(num)) {
+    const clean = Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    return `${clean} dBm`;
+  }
+  return txt;
+};
+
+const normalizeText = (value: string) => {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+};
+
+const getMonitorStatusTone = (statusSummary?: string) => {
+  const status = normalizeText(statusSummary || '');
+  if (/critical|critico|critica|offline|caido|falla|error|down/.test(status)) {
+    return {
+      badgeClass: 'bg-red-50 border-red-200 text-red-700',
+      dotClass: 'bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,0.18)]',
+      accentClass: 'from-[#f7f9ff] to-white border-[#dbe6ff]'
+    };
+  }
+  if (/regular|warning|alerta|inestable|degradado|degraded/.test(status)) {
+    return {
+      badgeClass: 'bg-amber-50 border-amber-200 text-amber-700',
+      dotClass: 'bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,0.18)]',
+      accentClass: 'from-[#f7f9ff] to-white border-[#dbe6ff]'
+    };
+  }
+  if (/very good|muy bueno|good|ok|online|up|estable|normal/.test(status)) {
+    return {
+      badgeClass: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+      dotClass: 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.18)]',
+      accentClass: 'from-[#f7f9ff] to-white border-[#dbe6ff]'
+    };
+  }
+  return {
+    badgeClass: 'bg-gray-50 border-gray-200 text-gray-700',
+    dotClass: 'bg-gray-400 shadow-[0_0_0_4px_rgba(156,163,175,0.18)]',
+    accentClass: 'from-[#f7f9ff] to-white border-[#dbe6ff]'
+  };
+};
+
+const parseMonitorPanelFromContent = (content: string): Partial<MonitorMetadata> & { resyncLine?: string; apiWarnings?: string } => {
+  const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
+  const pick = (regex: RegExp) => lines.find(l => regex.test(l));
+  const valueOf = (regex: RegExp) => pick(regex)?.replace(regex, '$1').trim();
+
+  const signalGraphLine = pick(/gr[aá]fico\s+señal/i);
+  const trafficGraphLine = pick(/gr[aá]fico\s+tr[aá]fico/i);
+  const lastInvoiceRaw = valueOf(/^💳\s*\*\*Última\s+factura:\*\*\s*(.+)$/i);
+  const invoiceMatch = lastInvoiceRaw?.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+
+  const signalGraphUrl = signalGraphLine?.match(/\(([^)]+)\)/)?.[1];
+  const trafficGraphUrl = trafficGraphLine?.match(/\(([^)]+)\)/)?.[1];
+
+  return {
+    clientName: valueOf(/^👤\s*\*\*Cliente:\*\*\s*(.+)$/i),
+    clientIdServicio: valueOf(/^🆔\s*\*\*Servicio:\*\*\s*(.+)$/i),
+    ip: valueOf(/^🌍\s*\*\*IP:\*\*\s*(.+)$/i),
+    onuExternalId: valueOf(/^🔢\s*\*\*ONU External ID:\*\*\s*(.+)$/i),
+    statusSummary: valueOf(/^📶\s*\*\*Estado ONU:\*\*\s*(.+)$/i),
+    onlineUptime: valueOf(/^⏱️\s*\*\*Tiempo en línea:\*\*\s*(.+)$/i),
+    distanceOltOnu: valueOf(/^📏\s*\*\*Distancia ONU-OLT:\*\*\s*(.+)$/i),
+    wisphubServiceStatus: valueOf(/^🛰️\s*\*\*Estado WispHub:\*\*\s*(.+)$/i),
+    lastInvoiceDate: invoiceMatch?.[1]?.trim() || lastInvoiceRaw,
+    lastInvoicePaid: invoiceMatch?.[2]?.trim(),
+    signalValue: valueOf(/^📡\s*\*\*Señal ONU\/OLT Rx:\*\*\s*(.+)$/i),
+    rx: valueOf(/^📥\s*\*\*RX:\*\*\s*(.+)$/i),
+    tx: valueOf(/^📤\s*\*\*TX:\*\*\s*(.+)$/i),
+    graphType: valueOf(/^🗂️\s*\*\*Per[ií]odo gr[aá]ficos:\*\*\s*(.+)$/i)?.toLowerCase(),
+    rut: valueOf(/^🪪\s*\*\*RUT:\*\*\s*(.+)$/i),
+    plan: valueOf(/^🚀\s*\*\*Plan:\*\*\s*(.+)$/i),
+    signalGraphUrl,
+    trafficGraphUrl,
+    resyncLine: lines.find(l => /^✅\s*\*\*Resync ejecutado\*\*/i.test(l) || /^❌\s*\*\*Resync:\*\*/i.test(l)),
+    apiWarnings: lines.find(l => /^⚠️\s*APIs\s+con\s+error:/i.test(l))
+  };
 };
 
 const parseMarkdownTableToInstallations = (content: string, actions?: ActionOption[], preferClientSelect: boolean = false): InstallationEntry[] => {
@@ -433,6 +566,8 @@ export function ChatMessage({
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, string[]>>({});
   const [odbNameToExternalId, setOdbNameToExternalId] = useState<Record<string, string>>({});
   const [isZoomed, setIsZoomed] = useState(false);
+  const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
+  const [monitorLive, setMonitorLive] = useState(false);
   const [selectedOnu, setSelectedOnu] = useState<{
     oltId?: string;
     board?: string;
@@ -444,16 +579,64 @@ export function ChatMessage({
   const [showWifiPass, setShowWifiPass] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitInFlightRef = useRef(false);
+  const consumedActionKeysRef = useRef<Set<string>>(new Set());
+  const [, setConsumedActionVersion] = useState(0);
+  const monitorInitialRefreshKeyRef = useRef('');
+  const [isMonitorRefreshing, setIsMonitorRefreshing] = useState(false);
+  const monitorRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showRunningConfig, setShowRunningConfig] = useState(false);
+  const [showFullStatusInfo, setShowFullStatusInfo] = useState(false);
   
   // Estado para la animación
   const [displayedContent, setDisplayedContent] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
-  const disableActionButtons = disableActions || (!isUser && isLatest && (isAwaitingResponse || isSubmitting));
+  const disableActionButtons = disableActions || (!isUser && (!isLatest || isAwaitingResponse || isSubmitting));
+
+  const getActionLockKey = (actionId?: string, actionPayload?: string, value?: string) => {
+    const id = String(actionId || '').trim().toLowerCase();
+    const payload = String(actionPayload || '').trim().toLowerCase();
+    const val = String(value || '').trim().toLowerCase();
+    if (id) return `id:${id}`;
+    if (payload) return `payload:${payload}`;
+    return val ? `value:${val}` : '';
+  };
+
+  const isSingleUseSelectionAction = (source: string) => {
+    return /seleccionar\s+cliente|seleccionar\s+instalaci[oó]n|seleccionar\s+onu|select-client|select-installation|select-onu|usar\s+onu|use-onu/i.test(source);
+  };
+
+  const isActionLocked = (actionId?: string, actionPayload?: string, value?: string) => {
+    const key = getActionLockKey(actionId, actionPayload, value);
+    return !!key && consumedActionKeysRef.current.has(key);
+  };
 
   // Estado de procesamiento para el modal
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [processingTitle, setProcessingTitle] = useState<string | undefined>(undefined);
+  const [processingDescription, setProcessingDescription] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (monitorRefreshTimerRef.current) {
+        clearTimeout(monitorRefreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  const openProcessingModal = (title?: string, description?: string) => {
+    setProcessingStatus('loading');
+    setProcessingTitle(title);
+    setProcessingDescription(description);
+    setIsProcessing(true);
+  };
+
+  const closeProcessingModal = () => {
+    setIsProcessing(false);
+    setProcessingTitle(undefined);
+    setProcessingDescription(undefined);
+  };
 
   // --- LÓGICA DE INICIALIZACIÓN Y AUTO-FILL ---
   
@@ -544,6 +727,124 @@ export function ChatMessage({
     if (/🔁\s*Flujo:\s*Cambio\s*de\s*ONU/i.test(content)) return true;
     return /\|\s*#\s*\|\s*OLT\s*\|\s*SN/i.test(content) || /onus sin autorizar/i.test(content) || /olt\s*\|\s*sn/i.test(content);
   }, [content, isUser]);
+
+  const monitorPanel = useMemo(() => {
+    if (isUser) return null;
+    const hasMonitorSignal = /panel\s+monitoreo\s+smartolt|monitoreo\s+cliente/i.test(content) || !!metadata?.monitor;
+    if (!hasMonitorSignal) return null;
+
+    const parsed = parseMonitorPanelFromContent(content);
+    const fromMeta = (metadata?.monitor || {}) as MonitorMetadata;
+    const smartoltRaw = ((metadata?.monitor || {}) as any)?.smartolt || {};
+
+    const runningFromRaw =
+      smartoltRaw?.runningConfig?.running_config ||
+      smartoltRaw?.runningConfig?.runningConfig ||
+      smartoltRaw?.runningConfig?.config ||
+      smartoltRaw?.runningConfig;
+
+    const fullStatusFromRaw =
+      smartoltRaw?.fullStatus?.full_status_info ||
+      smartoltRaw?.fullStatus?.fullStatusInfo ||
+      smartoltRaw?.fullStatusInfo;
+
+    const signalValueFromRaw =
+      smartoltRaw?.signal?.onu_signal_value ||
+      smartoltRaw?.details?.onu_details?.onu_signal_value;
+
+    const signal1310FromRaw =
+      smartoltRaw?.signal?.onu_signal_1310 ||
+      smartoltRaw?.details?.onu_details?.signal_1310;
+
+    const signal1490FromRaw =
+      smartoltRaw?.signal?.onu_signal_1490 ||
+      smartoltRaw?.details?.onu_details?.signal_1490;
+
+    const panel = {
+      clientName: fromMeta.clientName || parsed.clientName,
+      clientIdServicio: fromMeta.clientIdServicio || parsed.clientIdServicio,
+      ip: fromMeta.ip || parsed.ip,
+      onuExternalId: fromMeta.onuExternalId || parsed.onuExternalId,
+      refreshedAt: fromMeta.refreshedAt,
+      graphType: fromMeta.graphType || parsed.graphType || 'daily',
+      statusSummary: fromMeta.statusSummary || parsed.statusSummary,
+      onlineUptime: fromMeta.onlineUptime || parsed.onlineUptime,
+      distanceOltOnu: fromMeta.distanceOltOnu || parsed.distanceOltOnu,
+      wisphubServiceStatus: fromMeta.wisphubServiceStatus || parsed.wisphubServiceStatus,
+      lastInvoiceDate: fromMeta.lastInvoiceDate || parsed.lastInvoiceDate,
+      lastInvoicePaid: fromMeta.lastInvoicePaid || parsed.lastInvoicePaid,
+      signalValue: fromMeta.signalValue || parsed.signalValue || toMonitorTextBlock(signalValueFromRaw),
+      rx: fromMeta.rx || parsed.rx,
+      tx: fromMeta.tx || parsed.tx,
+      signal1310: toDbmString(fromMeta.signal1310 || signal1310FromRaw),
+      signal1490: toDbmString(fromMeta.signal1490 || signal1490FromRaw),
+      runningConfig: toMonitorTextBlock(fromMeta.runningConfig || runningFromRaw),
+      fullStatusInfo: toMonitorTextBlock(fromMeta.fullStatusInfo || fullStatusFromRaw, 3500),
+      rut: fromMeta.rut || parsed.rut,
+      plan: fromMeta.plan || parsed.plan,
+      signalGraphUrl: fromMeta.signalGraphUrl || parsed.signalGraphUrl,
+      trafficGraphUrl: fromMeta.trafficGraphUrl || parsed.trafficGraphUrl,
+      resyncLine: parsed.resyncLine,
+      apiWarnings: parsed.apiWarnings || ((fromMeta.failedApis || []).length ? `⚠️ APIs con error: ${fromMeta.failedApis?.join(' | ')}` : undefined)
+    };
+
+    if (!panel.clientName && !panel.onuExternalId && !panel.statusSummary) return null;
+    return panel;
+  }, [content, metadata, isUser]);
+
+  const monitorGraphTypeLabel = useMemo(() => {
+    const type = String(monitorPanel?.graphType || '').toLowerCase();
+    if (type.includes('hour') || type.includes('hora')) return 'Hora';
+    if (type.includes('week') || type.includes('seman')) return 'Semana';
+    if (type.includes('month') || type.includes('mes')) return 'Mes';
+    if (type.includes('year') || type.includes('año') || type.includes('ano')) return 'Año';
+    return 'Día';
+  }, [monitorPanel?.graphType]);
+
+  const monitorStatusTone = useMemo(() => getMonitorStatusTone(monitorPanel?.statusSummary), [monitorPanel?.statusSummary]);
+  const monitorIsUpdating = Boolean(monitorPanel && isLatest && (isAwaitingResponse || isMonitorRefreshing));
+  const monitorLastUpdateLabel = useMemo(() => {
+    const updateSource = monitorPanel?.refreshedAt || createdAt;
+    if (!updateSource) return null;
+    const date = new Date(updateSource);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString('es-CL', {
+      timeZone: 'America/Santiago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  }, [monitorPanel?.refreshedAt, createdAt]);
+  const monitorPeriodKey = useMemo(() => normalizeText(monitorGraphTypeLabel), [monitorGraphTypeLabel]);
+
+  useEffect(() => {
+    if (!monitorPanel?.onuExternalId) setMonitorLive(false);
+  }, [monitorPanel?.onuExternalId]);
+
+  useEffect(() => {
+    if (!monitorPanel?.onuExternalId) return;
+    setShowRunningConfig(false);
+    setShowFullStatusInfo(false);
+  }, [monitorPanel?.onuExternalId]);
+
+  useEffect(() => {
+    if (!monitorLive || !monitorPanel?.onuExternalId || !isLatest || disableActionButtons) return;
+    const interval = setInterval(() => {
+      invokeAction(`monitoreo refresh ${monitorPanel.onuExternalId}`, monitorPanel.onuExternalId, 'monitor_refresh_live', false);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [monitorLive, monitorPanel?.onuExternalId, isLatest, disableActionButtons]);
+
+  useEffect(() => {
+    if (!monitorPanel?.onuExternalId || !isLatest || disableActionButtons || !onReplaceMessage) return;
+    const key = `${messageId || 'no-id'}:${monitorPanel.onuExternalId}`;
+    if (monitorInitialRefreshKeyRef.current === key) return;
+    monitorInitialRefreshKeyRef.current = key;
+    invokeAction(`monitoreo refresh ${monitorPanel.onuExternalId}`, monitorPanel.onuExternalId, 'monitor_refresh_boot', false);
+  }, [monitorPanel?.onuExternalId, isLatest, disableActionButtons, onReplaceMessage, messageId]);
   
   const hasInstallationsTable = Boolean(installations.length);
 
@@ -551,6 +852,12 @@ export function ChatMessage({
   
   const finalCleanText = useMemo(() => {
     if (isUser) return content;
+    if (monitorPanel) {
+      const lines = ['📡 Panel de monitoreo actualizado'];
+      if (monitorPanel.resyncLine) lines.push(monitorPanel.resyncLine);
+      if (monitorPanel.apiWarnings) lines.push(monitorPanel.apiWarnings);
+      return lines.join('\n');
+    }
     const isRefreshOnu = content.toLowerCase().includes('refresh onu') || content.toLowerCase().includes('refresh onu-list');
     let cleanedContent = content;
     if (hasInstallationsTable || hasSmartoltTable || hasOnuTableInContent) {
@@ -562,7 +869,7 @@ export function ChatMessage({
       cleanedContent = cleanedContent.replace(/ONUs?\s+sin\s+autorizar[\s\S]*?(?=Disponibilidad|$)/i, '').trim();
     }
     return cleanedContent || (hasInstallationsTable ? "He encontrado las siguientes instalaciones:" : "");
-  }, [content, isUser, hasInstallationsTable, hasSmartoltTable, hasOnuTableInContent]);
+  }, [content, isUser, hasInstallationsTable, hasSmartoltTable, hasOnuTableInContent, monitorPanel]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -660,19 +967,75 @@ export function ChatMessage({
   };
 
   // Decide whether to replace the current assistant message (refresh) or send a normal action
-  const invokeAction = (actionPayload?: string, value?: string, actionId?: string) => {
+  const invokeAction = (actionPayload?: string, value?: string, actionId?: string, showProcessing: boolean = true) => {
+    if (disableActionButtons) return;
+
     const resolved = resolvePayload(actionPayload, value);
     if (!resolved) return;
 
     const lowSource = ((actionId || actionPayload || value) || '').toString().toLowerCase();
-    const replacePattern = /refresh\s*onu|refresh\s*onu-list|refrescar\s*onu|refrescar\s*onus|refrescar\s*onu-list|^refresh/i;
-    const shouldReplace = replacePattern.test(lowSource) || (actionId || '').toLowerCase().includes('refresh');
+    const lockSource = `${actionId || ''} ${actionPayload || ''} ${value || ''} ${resolved}`.toLowerCase();
+    const isSingleUse = isSingleUseSelectionAction(lockSource);
+    const lockKey = getActionLockKey(actionId, actionPayload, resolved || value);
 
-    if (shouldReplace && onReplaceMessage && messageId) {
-      onReplaceMessage(messageId, resolved);
-    } else {
-      onActionSelect?.(resolved);
-    }
+    if (isSingleUse && lockKey && consumedActionKeysRef.current.has(lockKey)) return;
+
+    const replacePattern = /refresh\s*onu|refresh\s*onu-list|refrescar\s*onu|refrescar\s*onus|refrescar\s*onu-list|^refresh|monitoreo\s+refresh|monitoreo\s+resync|monitoreo\s+grafico|monitoreo\s+gr[aá]fico|monitoreo\s+periodo|monitoreo\s+per[ií]odo/i;
+    const normalizedActionId = (actionId || '').toLowerCase();
+    const monitorPanelAction = /^monitor[_-](graph|refresh|resync)/.test(normalizedActionId) || normalizedActionId === 'monitor_refresh_live';
+    const shouldReplace = replacePattern.test(lowSource) || normalizedActionId.includes('refresh') || monitorPanelAction;
+    const monitorActionRequested = monitorPanelAction || /monitoreo\s+(refresh|resync|grafico|gr[aá]fico|periodo|per[ií]odo)/i.test(lockSource);
+    const canReplace = Boolean(shouldReplace && onReplaceMessage && messageId);
+    const canSelect = Boolean(onActionSelect);
+    const hasHandler = canReplace || canSelect;
+    if (!hasHandler) return;
+
+    const isClientLoading = /seleccionar\s+cliente|select-client|buscar\s+cliente|search\s+client/i.test(lowSource);
+    const loadingTitle = isClientLoading ? 'Cargando cliente…' : 'Cargando…';
+    const loadingDescription = isClientLoading
+      ? 'Buscando información del cliente, espera un momento.'
+      : 'Procesando solicitud, por favor espera.';
+
+    const run = async () => {
+      let lockApplied = false;
+      try {
+        if (isSingleUse && lockKey) {
+          consumedActionKeysRef.current.add(lockKey);
+          lockApplied = true;
+          setConsumedActionVersion((v) => v + 1);
+        }
+
+        if (showProcessing) {
+          openProcessingModal(loadingTitle, loadingDescription);
+        }
+
+        if (monitorActionRequested) {
+          setIsMonitorRefreshing(true);
+        }
+
+        if (canReplace) {
+          await onReplaceMessage?.(messageId, resolved);
+        } else {
+          await onActionSelect?.(resolved);
+        }
+      } catch (err) {
+        if (lockApplied && lockKey) {
+          consumedActionKeysRef.current.delete(lockKey);
+          setConsumedActionVersion((v) => v + 1);
+        }
+        console.error('invokeAction error', err);
+      } finally {
+        if (monitorActionRequested) {
+          if (monitorRefreshTimerRef.current) clearTimeout(monitorRefreshTimerRef.current);
+          monitorRefreshTimerRef.current = setTimeout(() => setIsMonitorRefreshing(false), 450);
+        }
+        if (showProcessing) {
+          closeProcessingModal();
+        }
+      }
+    };
+
+    void run();
   };
 
   const handleOnuSelect = (onu: OnuEntry, olt: OltEntry) => {
@@ -733,11 +1096,25 @@ export function ChatMessage({
   const selectionIds = new Set(selectionButtonsToRender.map(a => a.id));
   const otherButtons = buttonActions.filter(a => a.id !== submitAction?.id && !selectionIds.has(a.id) && !a.id.startsWith('select-installation-'))
     .filter(a => !(hasInstallationsTable && hasClientSelectActions && (a.id.startsWith('select-client-') || (a.payload || '').toLowerCase().includes('seleccionar cliente'))));
+
+  const isMonitorControlAction = (action: ActionOption) => {
+    const actionSource = normalizeText(`${action.id || ''} ${action.label || ''} ${action.payload || ''}`);
+    if (!actionSource) return false;
+    if (/^monitor[_-]/.test(normalizeText(action.id || ''))) return true;
+    return /monitoreo\s+(refresh|resync|grafico|periodo|hora|dia|semana|mes|ano)/.test(actionSource);
+  };
+
+  const monitorControlButtons = monitorPanel ? otherButtons.filter(isMonitorControlAction) : [];
+  const monitorControlIds = new Set(monitorControlButtons.map((a) => a.id));
+  const nonMonitorButtons = otherButtons.filter((a) => !monitorControlIds.has(a.id));
   
 const handleBulkSubmit = async () => {
   if (disableActionButtons || submitInFlightRef.current) return;
   submitInFlightRef.current = true;
   setIsSubmitting(true);
+
+  let shouldUseProcessingModal = false;
+  let isAuthFlow = false;
 
   try {
     // 1. Identificar el tipo de acción
@@ -746,6 +1123,7 @@ const handleBulkSubmit = async () => {
     const isWifiFlow = /^wifi(?:[_-]?)(?:apply|submit)$/i.test(sid);
     const isAuth = sid === 'auth-submit';
     const isChangeOnuFlow = /^(?:change[_-]?onu|cambio[_-]?onu)/i.test(sid);
+    isAuthFlow = isAuth;
 
     // 2. Validación específica para WiFi (antes de procesar nada)
     if (isWifiFlow) {
@@ -760,10 +1138,18 @@ const handleBulkSubmit = async () => {
       setWifiError(null);
     }
 
-    // 3. Preparación del Modal para flujo de Autorización
-    if (isAuth) {
-      setProcessingStatus('loading');
-      setIsProcessing(true);
+    // 3. Mostrar modal de espera para todos los flujos con respuesta asíncrona
+    shouldUseProcessingModal = isAuth || isWanFlow || isWifiFlow || isChangeOnuFlow;
+    if (shouldUseProcessingModal) {
+      if (isAuth) {
+        openProcessingModal('Cargando…', 'Dame un momento mientras autorizo en SmartOLT y registro la ONU.');
+      } else if (isWifiFlow) {
+        openProcessingModal('Cargando…', 'Aplicando configuración WiFi, espera un momento.');
+      } else if (isWanFlow) {
+        openProcessingModal('Cargando…', 'Aplicando configuración WAN, espera un momento.');
+      } else if (isChangeOnuFlow) {
+        openProcessingModal('Cargando…', 'Procesando cambio de ONU, espera un momento.');
+      }
     }
 
     // 4. Recolección de Datos (Inputs + ONU Seleccionada)
@@ -829,17 +1215,17 @@ const handleBulkSubmit = async () => {
 
         setProcessingStatus('success');
         await new Promise((resolve) => setTimeout(resolve, 900));
-        setIsProcessing(false);
+        closeProcessingModal();
 
       } 
       else if (isChangeOnuFlow) {
         if (onSubmitAction) await onSubmitAction(finalPayload, collected);
-        else if (onActionSelect) onActionSelect(finalPayload);
+        else if (onActionSelect) await onActionSelect(finalPayload);
       }
       else if (isWifiFlow) {
         // B) FLUJO WIFI
         if (onSubmitAction) await onSubmitAction(finalPayload, collected);
-        else if (onActionSelect) onActionSelect(finalPayload);
+        else if (onActionSelect) await onActionSelect(finalPayload);
       } 
       else if (isWanFlow) {
         // C) FLUJO WAN
@@ -860,11 +1246,14 @@ const handleBulkSubmit = async () => {
       if (isAuth) {
         setProcessingStatus('error');
         await new Promise((resolve) => setTimeout(resolve, 1500));
-        setIsProcessing(false);
+        closeProcessingModal();
       }
       // Nota: Para otros flujos (Wifi/Wan) podrías poner un toast de error aquí si quisieras.
     }
     } finally {
+      if (!isAuthFlow && shouldUseProcessingModal) {
+        closeProcessingModal();
+      }
       submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
@@ -896,7 +1285,7 @@ const handleBulkSubmit = async () => {
                     <ImagePreview 
                       src={imageDataUrl}
                       alt="Enviada"
-                      onClick={() => setIsZoomed(true)}
+                      onClick={() => { setZoomImageUrl(imageDataUrl); setIsZoomed(true); }}
                       className="max-h-64 w-full object-cover cursor-pointer"
                     />
                   </div>
@@ -934,6 +1323,14 @@ const handleBulkSubmit = async () => {
                             if (!sn) return null;
                             const label = sn || o.model || 'Sin etiqueta';
                             const actionMatch = safeActions.find(a => String(a.label || '').trim() === sn || String(a.payload || '').includes(sn));
+                            const oltRaw = String(o.olt || '').trim();
+                            const oltMatch = oltRaw.match(/\[(\d+)\]/);
+                            const oltPart = oltMatch ? ` olt ${oltMatch[1]}` : (/^\d+$/.test(oltRaw) ? ` olt ${oltRaw}` : '');
+                            const ponPart = o.pon ? ` pon ${o.pon}` : '';
+                            const portPart = o.port ? ` port ${o.port}` : '';
+                            const modelPart = o.model ? ` model ${o.model}` : '';
+                            const fallbackPayload = `seleccionar onu ${sn}${oltPart}${ponPart}${portPart}${modelPart}`;
+                            const rowActionLocked = isActionLocked(actionMatch?.id, actionMatch?.payload || fallbackPayload, actionMatch?.label || sn);
                             return (
                               <div key={idx} className="flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-2 px-3 sm:px-4 py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
                                 <div className="col-span-12 md:col-span-3 flex flex-col md:flex-row md:items-center gap-2">
@@ -963,17 +1360,10 @@ const handleBulkSubmit = async () => {
                                       if (actionMatch) {
                                         invokeAction(actionMatch.payload, actionMatch.label, actionMatch.id);
                                       } else if (sn) {
-                                        // try to extract numeric OLT id from bracketed label (e.g. "... [3]")
-                                        const oltRaw = String(o.olt || '').trim();
-                                        const oltMatch = oltRaw.match(/\[(\d+)\]/);
-                                        const oltPart = oltMatch ? ` olt ${oltMatch[1]}` : (/^\d+$/.test(oltRaw) ? ` olt ${oltRaw}` : '');
-                                        const ponPart = o.pon ? ` pon ${o.pon}` : '';
-                                        const portPart = o.port ? ` port ${o.port}` : '';
-                                        const modelPart = o.model ? ` model ${o.model}` : '';
-                                        invokeAction(`seleccionar onu ${sn}${oltPart}${ponPart}${portPart}${modelPart}`, sn);
+                                        invokeAction(fallbackPayload, sn);
                                       }
                                     }}
-                                    disabled={disableActionButtons}
+                                    disabled={disableActionButtons || rowActionLocked}
                                     className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md rounded-lg active:scale-95 transition-transform"
                                   >
                                     Seleccionar
@@ -1004,11 +1394,212 @@ const handleBulkSubmit = async () => {
                         <ImagePreview 
                           src={imageDataUrl}
                           alt="Evidencia técnica"
-                          onClick={() => setIsZoomed(true)}
+                          onClick={() => { setZoomImageUrl(imageDataUrl); setIsZoomed(true); }}
                           onDownload={() => downloadImage(imageDataUrl)}
                           className="h-auto max-h-[350px] object-cover"
                         />
                     </div>
+                  </div>
+                )}
+
+                {monitorPanel && (
+                  <div className={`mt-4 w-full rounded-2xl border bg-white p-4 sm:p-5 transition-all duration-300 ${monitorIsUpdating ? 'border-[#1e3a8a]/30 shadow-md shadow-[#1e3a8a]/10' : 'border-[#1e3a8a]/15 shadow-sm'}`}>
+                    <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className={`h-2.5 w-2.5 rounded-full ${monitorStatusTone.dotClass} ${monitorIsUpdating ? 'animate-pulse' : ''}`} />
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-gray-900 tracking-wide truncate">Panel Monitoreo SmartOLT</div>
+                          <div className="text-[11px] text-gray-500 truncate">
+                            {monitorLastUpdateLabel ? `Actualizado ${monitorLastUpdateLabel}` : 'Actualización disponible'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`text-[11px] px-2 py-1 rounded border font-medium ${monitorStatusTone.badgeClass}`}>
+                          {monitorPanel.statusSummary || 'Sin estado'}
+                        </span>
+                        {monitorPanel.onuExternalId && (
+                          <span className="text-[11px] font-mono text-gray-700 bg-gray-100 px-2 py-1 rounded border border-gray-200">ONU {monitorPanel.onuExternalId}</span>
+                        )}
+                        {monitorPanel.onuExternalId && (
+                          <Button
+                            size="sm"
+                            disabled={disableActionButtons}
+                            onClick={() => setMonitorLive((prev) => !prev)}
+                            className={`h-7 px-2.5 text-[11px] border transition-all duration-200 ${monitorLive ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500 text-white' : 'bg-[#1e3a8a] hover:bg-[#243f96] border-[#1e3a8a] text-white'}`}
+                          >
+                            {monitorLive ? '⏸ Detener tiempo real' : '▶ Tiempo real'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {monitorIsUpdating ? (
+                      <div className="mb-3 text-[11px] text-[#1e3a8a] bg-[#1e3a8a]/5 border border-[#1e3a8a]/20 rounded-lg px-3 py-2 flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Actualizando métricas y gráficos del panel...
+                      </div>
+                    ) : monitorLive ? (
+                      <div className="mb-3 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                        Monitoreo en tiempo real activo: actualización automática cada 30 segundos.
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs mb-3">
+                      {[
+                        { label: 'Cliente', value: monitorPanel.clientName || 'N/D', spanTwoMobile: true },
+                        { label: 'Servicio', value: monitorPanel.clientIdServicio || 'N/D' },
+                        { label: 'IP', value: monitorPanel.ip || 'N/D' },
+                        { label: 'Período', value: monitorGraphTypeLabel },
+                        { label: 'Status', value: monitorPanel.statusSummary || 'N/D' },
+                        { label: 'ONU/OLT Rx signal', value: monitorPanel.signalValue || monitorPanel.rx || 'N/D', spanTwoMobile: true },
+                        { label: '1310nm (OLT Rx)', value: monitorPanel.signal1310 || 'N/D' },
+                        { label: '1490nm (ONU Rx)', value: monitorPanel.signal1490 || 'N/D' },
+                        { label: 'TX', value: monitorPanel.tx || 'N/D' },
+                        { label: 'Distancia ONU-OLT', value: monitorPanel.distanceOltOnu || 'N/D' },
+                        { label: 'Tiempo en línea', value: monitorPanel.onlineUptime || 'N/D' },
+                        { label: 'Estado WispHub', value: monitorPanel.wisphubServiceStatus || 'N/D' },
+                        {
+                          label: 'Última factura',
+                          spanTwoMobile: true,
+                          value: monitorPanel.lastInvoiceDate
+                            ? `${monitorPanel.lastInvoiceDate}${monitorPanel.lastInvoicePaid ? ` (${monitorPanel.lastInvoicePaid})` : ''}`
+                            : (monitorPanel.lastInvoicePaid || 'N/D')
+                        },
+                      ].map((item) => (
+                        <div
+                          key={item.label}
+                          className={`rounded-lg border px-3 py-2 bg-gradient-to-b transition-all duration-200 ${monitorStatusTone.accentClass} ${monitorIsUpdating ? 'border-[#1e3a8a]/20' : 'border-[#1e3a8a]/15'} hover:border-[#1e3a8a]/25 hover:shadow-sm ${item.spanTwoMobile ? 'col-span-2 lg:col-span-1' : ''}`}
+                        >
+                          <span className="text-[#1e3a8a]/70">{item.label}</span>
+                          <div className="text-gray-900 font-medium truncate">{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {monitorControlButtons.length > 0 && (
+                      <div className="mt-3 rounded-xl border border-[#1e3a8a]/15 bg-[#f7f9ff] p-2.5">
+                        <div className="text-[11px] text-[#1e3a8a]/70 mb-2">Controles monitoreo</div>
+                        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+                          {monitorControlButtons.map((a) => {
+                            const actionSource = normalizeText(`${a.label || ''} ${a.payload || ''}`);
+                            const isPeriodAction = /(hora|dia|semana|mes|ano)/.test(actionSource) && /(monitor|monitoreo|grafico|periodo)/.test(actionSource);
+                            const isActivePeriod = isPeriodAction && actionSource.includes(monitorPeriodKey);
+                            const isRefreshAction = /(actualizar|refresh)/.test(actionSource);
+                            const isResyncAction = /(resync)/.test(actionSource);
+                            const isSearchClientAction = /(buscar\s+otro\s+cliente|buscar\s+cliente)/.test(actionSource);
+
+                            if (a.type === 'link' && a.url) {
+                              const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
+                              if (disableActionButtons) {
+                                return (
+                                  <span
+                                    key={a.id}
+                                    className="inline-flex items-center justify-center rounded-lg text-[11px] font-medium h-9 w-full sm:w-auto bg-gray-200 text-gray-500 px-3 border border-gray-200 cursor-not-allowed select-none"
+                                    aria-disabled="true"
+                                  >
+                                    {a.label}
+                                  </span>
+                                );
+                              }
+
+                              return (
+                                <a
+                                  key={a.id}
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center rounded-lg text-[11px] font-medium h-9 w-full sm:w-auto px-3 bg-white hover:bg-[#eef3ff] text-[#1e3a8a] hover:text-[#f5831f] border border-[#1e3a8a]/20 shadow-sm transition-colors no-underline"
+                                >
+                                  {a.label}
+                                </a>
+                              );
+                            }
+
+                            return (
+                              <Button
+                                key={a.id}
+                                size="sm"
+                                variant="secondary"
+                                disabled={disableActionButtons || isActionLocked(a.id, a.payload, a.label)}
+                                onClick={() => invokeAction(a.payload, a.label, a.id)}
+                                className={`h-9 w-full sm:w-auto px-3 text-[11px] border transition-all duration-200 shadow-sm ${isActivePeriod ? 'bg-[#1e3a8a] text-white hover:bg-[#243f96] hover:!text-[#f5831f] border-[#1e3a8a]' : isRefreshAction ? 'bg-[#1e3a8a] text-white hover:bg-[#243f96] hover:!text-[#f5831f] border-[#1e3a8a]' : isResyncAction ? 'bg-white text-[#1e3a8a] hover:bg-[#eef3ff] hover:!text-[#f5831f] border-[#1e3a8a]/35' : isSearchClientAction ? 'bg-white text-gray-700 hover:bg-gray-100 hover:!text-[#f5831f] border-gray-200' : 'bg-white text-[#1e3a8a] hover:bg-[#eef3ff] hover:!text-[#f5831f] border-[#1e3a8a]/20'}`}
+                              >
+                                {a.label}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {(monitorPanel.signalGraphUrl || monitorPanel.trafficGraphUrl) && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                        {monitorPanel.signalGraphUrl && (
+                          <div className={`rounded-xl border bg-gray-50 p-2 transition-all duration-300 ${monitorIsUpdating ? 'border-[#1e3a8a]/25 shadow-sm shadow-[#1e3a8a]/10' : 'border-gray-200'}`}>
+                            <div className="text-[11px] text-gray-600 mb-2">Gráfico señal ({monitorGraphTypeLabel.toLowerCase()})</div>
+                            <ImagePreview
+                              src={monitorPanel.signalGraphUrl}
+                              alt="Gráfico señal"
+                              className="h-44 rounded-lg border border-gray-200 cursor-zoom-in"
+                              onClick={() => { setZoomImageUrl(monitorPanel.signalGraphUrl || null); setIsZoomed(true); }}
+                              onDownload={() => monitorPanel.signalGraphUrl && downloadImage(monitorPanel.signalGraphUrl)}
+                            />
+                          </div>
+                        )}
+                        {monitorPanel.trafficGraphUrl && (
+                          <div className={`rounded-xl border bg-gray-50 p-2 transition-all duration-300 ${monitorIsUpdating ? 'border-[#1e3a8a]/25 shadow-sm shadow-[#1e3a8a]/10' : 'border-gray-200'}`}>
+                            <div className="text-[11px] text-gray-600 mb-2">Gráfico tráfico ({monitorGraphTypeLabel.toLowerCase()})</div>
+                            <ImagePreview
+                              src={monitorPanel.trafficGraphUrl}
+                              alt="Gráfico tráfico"
+                              className="h-44 rounded-lg border border-gray-200 cursor-zoom-in"
+                              onClick={() => { setZoomImageUrl(monitorPanel.trafficGraphUrl || null); setIsZoomed(true); }}
+                              onDownload={() => monitorPanel.trafficGraphUrl && downloadImage(monitorPanel.trafficGraphUrl)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {monitorPanel.runningConfig && (
+                      <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="text-[11px] text-gray-600">Running config</div>
+                          <Button
+                            size="sm"
+                            type="button"
+                            onClick={() => setShowRunningConfig((prev) => !prev)}
+                            className="h-6 px-2 text-[10px] bg-white hover:bg-gray-100 border border-gray-200 text-gray-700"
+                          >
+                            {showRunningConfig ? 'Ocultar' : 'Mostrar'}
+                          </Button>
+                        </div>
+                        {showRunningConfig && (
+                          <pre className="max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white p-2.5 text-[11px] leading-relaxed text-gray-700 whitespace-pre-wrap break-words">{monitorPanel.runningConfig}</pre>
+                        )}
+                      </div>
+                    )}
+
+                    {monitorPanel.fullStatusInfo && (
+                      <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="text-[11px] text-gray-600">Estado óptico detallado</div>
+                          <Button
+                            size="sm"
+                            type="button"
+                            onClick={() => setShowFullStatusInfo((prev) => !prev)}
+                            className="h-6 px-2 text-[10px] bg-white hover:bg-gray-100 border border-gray-200 text-gray-700"
+                          >
+                            {showFullStatusInfo ? 'Ocultar' : 'Mostrar'}
+                          </Button>
+                        </div>
+                        {showFullStatusInfo && (
+                          <pre className="max-h-56 overflow-auto rounded-lg border border-gray-200 bg-white p-2.5 text-[11px] leading-relaxed text-gray-700 whitespace-pre-wrap break-words">{monitorPanel.fullStatusInfo}</pre>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1052,7 +1643,7 @@ const handleBulkSubmit = async () => {
                               <Button 
                                 size="sm" 
                                 onClick={() => inst.actionPayload && invokeAction(inst.actionPayload, inst.clientName)} 
-                                disabled={disableActionButtons}
+                                disabled={disableActionButtons || isActionLocked(undefined, inst.actionPayload, inst.clientName)}
                                 className="w-full md:w-auto h-9 md:h-7 text-xs font-semibold bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md rounded-lg active:scale-95 transition-all"
                               >
                                 {(inst.actionPayload || '').toLowerCase().includes('seleccionar cliente') ? 'Seleccionar' : 'Autorizar'}
@@ -1130,7 +1721,7 @@ const handleBulkSubmit = async () => {
                                   <Button 
                                     size="sm" 
                                     onClick={() => handleOnuSelect(onu, olt)} 
-                                    disabled={disableActionButtons}
+                                    disabled={disableActionButtons || isActionLocked(onu.id, onu.actionPayload, onu.label)}
                                     className="w-full md:w-auto h-10 md:h-8 px-4 text-xs font-semibold bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md rounded-lg active:scale-95 transition-transform"
                                   >
                                     Usar
@@ -1156,7 +1747,7 @@ const handleBulkSubmit = async () => {
                           key={a.id}
                           size="sm"
                           variant="secondary"
-                          disabled={disableActionButtons}
+                          disabled={disableActionButtons || isActionLocked(a.id, a.payload, a.label)}
                           onClick={() => invokeAction(a.payload, a.label, a.id)}
                           className="h-10 bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white truncate border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md transition-all font-medium rounded-lg"
                         >
@@ -1167,10 +1758,10 @@ const handleBulkSubmit = async () => {
                   </div>
                 )}
                 
-                {otherButtons.length > 0 && (
+                {nonMonitorButtons.length > 0 && (
                   <div className="w-full flex justify-start">
                     <div className="flex flex-wrap gap-2 w-full md:max-w-none justify-start">
-                       {otherButtons.map((a) => {
+                       {nonMonitorButtons.map((a) => {
                          if (a.type === 'link' && a.url) {
                           const href = a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`;
                           if (disableActionButtons) {
@@ -1198,7 +1789,7 @@ const handleBulkSubmit = async () => {
                             key={a.id}
                             size="sm"
                             variant="secondary"
-                            disabled={disableActionButtons}
+                            disabled={disableActionButtons || isActionLocked(a.id, a.payload, a.label)}
                             onClick={() => invokeAction(a.payload, a.label, a.id)}
                             className="h-9 bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md"
                           >
@@ -1302,24 +1893,29 @@ const handleBulkSubmit = async () => {
       </div>
 
       {/* --- MODAL PROCESAMIENTO --- */}
-      <ProcessingModal isOpen={isProcessing} status={processingStatus} />
+      <ProcessingModal
+        isOpen={isProcessing}
+        status={processingStatus}
+        title={processingTitle}
+        description={processingDescription}
+      />
 
       {/* --- MODAL ZOOM --- */}
-      {isZoomed && imageDataUrl && (
+      {isZoomed && (zoomImageUrl || imageDataUrl) && (
         <div 
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-200 backdrop-blur-sm"
-          onClick={() => setIsZoomed(false)}
+          onClick={() => { setIsZoomed(false); setZoomImageUrl(null); }}
         >
           <Button 
             className="absolute top-4 right-4 rounded-full bg-gradient-to-b from-[#2f3fa0]/90 to-[#1f2a6d]/90 hover:from-[#3a4ec0]/95 hover:to-[#24317c]/95 text-orange-200 hover:text-orange-100 z-[101] size-10 border border-white/15 shadow-[0_10px_20px_rgba(31,42,109,0.25)] backdrop-blur-md"
             size="icon"
-            onClick={(e) => { e.stopPropagation(); setIsZoomed(false); }}
+            onClick={(e) => { e.stopPropagation(); setIsZoomed(false); setZoomImageUrl(null); }}
           >
             <X className="size-5" />
           </Button>
           
           <img 
-            src={resolveImageUrl(imageDataUrl) || imageDataUrl} 
+            src={resolveImageUrl(zoomImageUrl || imageDataUrl || undefined) || zoomImageUrl || imageDataUrl || ''} 
             className="max-w-full max-h-[85vh] w-auto h-auto object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
             alt="Zoom"
             onClick={(e) => e.stopPropagation()} 
@@ -1327,7 +1923,7 @@ const handleBulkSubmit = async () => {
           
           <div className="absolute bottom-8 flex gap-4 z-[101]">
             <Button 
-              onClick={(e) => { e.stopPropagation(); downloadImage(imageDataUrl); }}
+              onClick={(e) => { e.stopPropagation(); downloadImage(zoomImageUrl || imageDataUrl || ''); }}
               className="bg-gradient-to-b from-[#2f3fa0]/90 to-[#1f2a6d]/90 hover:from-[#3a4ec0]/95 hover:to-[#24317c]/95 text-orange-200 hover:text-orange-100 border border-white/15 shadow-[0_10px_20px_rgba(31,42,109,0.25)] backdrop-blur-md"
             >
               <Download className="size-4 mr-2" /> Descargar Original

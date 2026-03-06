@@ -31,6 +31,12 @@ export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
       query: 'cambiar onu',
       description: 'Gestiona el reemplazo de una ONU'
     },
+    {
+      icon: Activity,
+      title: 'Monitoreo de cliente',
+      query: 'monitoreo cliente',
+      description: 'Consulta el estado y métricas de un cliente en tiempo real'
+    },
   ];
 
   return (

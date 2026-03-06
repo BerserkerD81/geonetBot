@@ -3,9 +3,10 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card } from './ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { 
   Shield, UserCircle2, X, Trash2, Loader2, 
-  CheckCircle2, AlertCircle, UserPlus, Edit3, RotateCcw 
+  CheckCircle2, AlertCircle, UserPlus, Edit3, RotateCcw, AlertTriangle
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -42,6 +43,8 @@ export function AdminUserPanel({ onClose }: AdminUserPanelProps) {
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [formData, setFormData] = useState<CreateUserForm>(INITIAL_FORM_STATE);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [userPendingDelete, setUserPendingDelete] = useState<AdminUser | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
@@ -115,14 +118,23 @@ export function AdminUserPanel({ onClose }: AdminUserPanelProps) {
     }
   };
 
-  const handleDelete = async (userId: number) => {
-    if (!window.confirm('¿Eliminar usuario?')) return;
+  const handleDelete = (user: AdminUser) => {
+    setUserPendingDelete(user);
+  };
+
+  const confirmDelete = async () => {
+    if (!userPendingDelete) return;
     try {
-      await fetch(`${API_BASE}/admin/users/${userId}`, { method: 'DELETE', credentials: 'include' });
-      setUsers(prev => prev.filter(u => u.id !== userId));
+      setIsDeletingUser(true);
+      const res = await fetch(`${API_BASE}/admin/users/${userPendingDelete.id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error('Error al eliminar usuario');
+      setUsers(prev => prev.filter(u => u.id !== userPendingDelete.id));
       showFeedback('success', 'Eliminado');
+      setUserPendingDelete(null);
     } catch {
       showFeedback('error', 'Error al eliminar');
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -297,7 +309,7 @@ export function AdminUserPanel({ onClose }: AdminUserPanelProps) {
                   <Button 
                     variant="ghost" 
                     size="icon" 
-                    onClick={() => handleDelete(u.id)}
+                    onClick={() => handleDelete(u)}
                     className="h-8 w-8 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-all"
                   >
                     <Trash2 className="size-4" />
@@ -308,6 +320,48 @@ export function AdminUserPanel({ onClose }: AdminUserPanelProps) {
           </div>
         </div>
       </div>
+
+      <Dialog open={!!userPendingDelete} onOpenChange={(open) => !open && !isDeletingUser && setUserPendingDelete(null)}>
+        <DialogContent className="max-w-md border border-gray-200 bg-white p-5">
+          <DialogHeader className="space-y-2 text-left">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex size-8 items-center justify-center rounded-lg bg-orange-100 border border-orange-200">
+                <AlertTriangle className="size-4 text-orange-600" />
+              </span>
+              <DialogTitle className="text-base font-semibold text-gray-900">Eliminar usuario</DialogTitle>
+            </div>
+            <DialogDescription className="text-sm text-gray-600">
+              Esta acción quitará el usuario del panel administrativo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 space-y-1">
+            <div><span className="text-gray-500">Nombre: </span><span className="font-semibold text-gray-900">{userPendingDelete?.name || 'Sin nombre'}</span></div>
+            <div><span className="text-gray-500">Email: </span><span className="font-medium text-gray-800">{userPendingDelete?.email || '-'}</span></div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setUserPendingDelete(null)}
+              disabled={isDeletingUser}
+              className="border-gray-300 text-gray-700 hover:bg-gray-100"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmDelete}
+              disabled={isDeletingUser}
+              className="bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white"
+            >
+              {isDeletingUser ? <Loader2 className="size-4 mr-2 animate-spin" /> : null}
+              Sí, eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

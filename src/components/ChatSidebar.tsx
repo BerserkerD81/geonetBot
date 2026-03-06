@@ -1,5 +1,7 @@
-import { useMemo, memo } from 'react';
-import { Plus, MessageSquare, LogOut, User, Shield, Settings } from 'lucide-react';
+import { useMemo, memo, useState } from 'react';
+import { Plus, MessageSquare, LogOut, User, Shield, Settings, Trash2, AlertTriangle } from 'lucide-react';
+import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { useAuth } from '../contexts/AuthContext';
 
 // --- Interfaces ---
@@ -30,7 +32,7 @@ const ChatItem = memo(({
   chat, 
   isActive, 
   onClick, 
-   
+  onDelete
 }: { 
   chat: Chat; 
   isActive: boolean; 
@@ -74,6 +76,24 @@ const ChatItem = memo(({
           </div>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={(e: any) => {
+          e.stopPropagation();
+          onDelete(chat.id);
+        }}
+        onMouseDown={(e: any) => e.stopPropagation()}
+        className={`size-7 flex-shrink-0 rounded-md flex items-center justify-center transition-colors ${
+          isActive
+            ? 'text-orange-600 hover:bg-orange-100 hover:text-orange-700'
+            : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+        }`}
+        title="Eliminar chat"
+        aria-label={`Eliminar chat ${chat.title}`}
+      >
+        <Trash2 className="size-3.5" />
+      </button>
     </div>
   );
 });
@@ -94,6 +114,19 @@ export function ChatSidebar({
   onOpenProfile,
 }: ChatSidebarProps) {
   const { user, logout, isAdmin } = useAuth();
+  const [chatPendingDelete, setChatPendingDelete] = useState<Chat | null>(null);
+
+  const handleDeleteChat = (id: string) => {
+    const chat = chats.find((c) => c.id === id) || null;
+    setChatPendingDelete(chat);
+  };
+
+  const confirmDeleteChat = () => {
+    if (!chatPendingDelete) return;
+    onDeleteChat(chatPendingDelete.id);
+    onNewChat();
+    setChatPendingDelete(null);
+  };
 
   // Optimización de filtros
   const { personalChats, adminHistories } = useMemo(() => {
@@ -120,7 +153,7 @@ export function ChatSidebar({
             chat={chat}
             isActive={activeChat === chat.id}
             onClick={onSelectChat}
-            onDelete={onDeleteChat}
+            onDelete={handleDeleteChat}
           />
         ))}
       </div>
@@ -240,6 +273,45 @@ export function ChatSidebar({
           </div>
         </div>
       </aside>
+
+      <Dialog open={!!chatPendingDelete} onOpenChange={(open) => !open && setChatPendingDelete(null)}>
+        <DialogContent className="max-w-md border border-gray-200 bg-white p-5">
+          <DialogHeader className="space-y-2 text-left">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex size-8 items-center justify-center rounded-lg bg-orange-100 border border-orange-200">
+                <AlertTriangle className="size-4 text-orange-600" />
+              </span>
+              <DialogTitle className="text-base font-semibold text-gray-900">Eliminar chat</DialogTitle>
+            </div>
+            <DialogDescription className="text-sm text-gray-600">
+              Esta acción eliminará la conversación seleccionada.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+            <span className="text-gray-500">Chat: </span>
+            <span className="font-semibold text-gray-900">{chatPendingDelete?.title || 'Sin título'}</span>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setChatPendingDelete(null)}
+              className="border-gray-300 text-gray-700 hover:bg-gray-100"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmDeleteChat}
+              className="bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white"
+            >
+              Sí, eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

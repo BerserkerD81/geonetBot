@@ -3,7 +3,14 @@ import { Check, Wifi, X } from 'lucide-react';
 
 type ProcessingState = 'loading' | 'success' | 'error';
 
-export function ProcessingModal({ isOpen, status = 'loading' }: { isOpen: boolean; status?: ProcessingState }) {
+type ProcessingModalProps = {
+  isOpen: boolean;
+  status?: ProcessingState;
+  title?: string;
+  description?: string;
+};
+
+export function ProcessingModal({ isOpen, status = 'loading', title, description }: ProcessingModalProps) {
   const isLoading = status === 'loading';
   const isSuccess = status === 'success';
   const isError = status === 'error';
@@ -33,6 +40,16 @@ export function ProcessingModal({ isOpen, status = 'loading' }: { isOpen: boolea
     : isError
       ? 'shadow-[0_0_24px_rgba(239,68,68,0.35)]'
       : 'shadow-[0_0_22px_rgba(249,115,22,0.28)]';
+
+  const defaultTitle = isSuccess ? 'Aprobado' : isError ? 'Error de autorización' : 'Cargando…';
+  const defaultDescription = isSuccess
+    ? 'Servicio autorizado y ONU registrada correctamente'
+    : isError
+      ? 'Falló la autorización en SmartOLT o el registro de la ONU'
+      : 'Dame un momento mientras autorizo en SmartOLT y registro las ONU';
+
+  const resolvedTitle = title?.trim() || defaultTitle;
+  const resolvedDescription = description?.trim() || defaultDescription;
 
   return (
     <AnimatePresence>
@@ -116,14 +133,10 @@ export function ProcessingModal({ isOpen, status = 'loading' }: { isOpen: boolea
 
               <div>
                 <h3 className={`text-xl font-bold tracking-tight ${titleClass}`}>
-                  {isSuccess ? 'Aprobado' : isError ? 'Error de autorización' : 'Cargando…'}
+                  {resolvedTitle}
                 </h3>
                 <p className={`text-sm mt-1 leading-relaxed max-w-[19rem] ${textClass}`}>
-                  {isSuccess
-                    ? 'Servicio autorizado y ONU registrada correctamente'
-                    : isError
-                      ? 'Falló la autorización en SmartOLT o el registro de la ONU'
-                      : 'Dame un momento mientras autorizo en SmartOLT y registro las ONU'}
+                  {resolvedDescription}
                 </p>
               </div>
             </div>
