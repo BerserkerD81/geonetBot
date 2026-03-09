@@ -148,8 +148,8 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
   const isDisabled = (!message.trim() && !imageDataUrl) || isLoading || isProcessingImg;
 
   return (
-    <div className="w-full bg-white px-4 pb-5 pt-2">
-      <div className="max-w-3xl mx-auto space-y-3">
+    <div className="w-full bg-white px-2 sm:px-4 pb-3 pt-2">
+      <div className="max-w-3xl mx-auto space-y-2 sm:space-y-3">
         
         {/* Image Preview */}
         {imageDataUrl && (
@@ -180,7 +180,7 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
         {/* Input Container */}
         <div 
           className={`
-            relative flex flex-col sm:flex-row items-end gap-2 p-2 sm:p-2.5 rounded-2xl transition-all duration-200 ease-out border
+            relative flex flex-row items-end gap-1 sm:gap-2 p-2 sm:p-2.5 rounded-2xl transition-all duration-200 ease-out border
             ${isDragging 
               ? 'border-orange-400 bg-orange-50/80 ring-4 ring-orange-400/10' 
               : isFocused 
@@ -208,47 +208,43 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             placeholder="Escribe un mensaje..."
-            className="flex-1 min-h-[44px] max-h-[200px] w-full bg-transparent border-0 text-gray-800 placeholder:text-gray-400 focus-visible:ring-0 text-[15px] resize-none py-3 px-3 sm:py-2.5"
+            className="flex-1 min-h-[40px] max-h-[120px] w-full bg-transparent border-0 text-gray-800 placeholder:text-gray-400 focus-visible:ring-0 text-[15px] resize-none py-2 px-2 sm:py-2.5 sm:px-3 rounded-lg sm:rounded-2xl"
             rows={1}
             disabled={isLoading || isProcessingImg}
+            style={{ WebkitOverflowScrolling: 'touch' }}
           />
 
-          <div className="flex items-center gap-2 pb-1 pr-1 w-full sm:w-auto justify-between sm:justify-end">
-            
-            {/* Botones de acción (Izquierda en móvil, agrupados en desktop) */}
-            <div className="flex gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={isLoading || isProcessingImg}
-                onClick={() => fileInputFileRef.current?.click()}
-                className="h-9 w-9 rounded-full text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-all active:scale-95"
-                title="Galería"
-              >
-                <ImageIcon className="size-5" />
-              </Button>
-
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={isLoading || isProcessingImg}
-                onClick={() => fileInputCameraRef.current?.click()}
-                className="h-9 w-9 rounded-full text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-all active:scale-95"
-                title="Cámara"
-              >
-                <Camera className="size-5" />
-              </Button>
-            </div>
-
+          <div className="flex items-center gap-1 sm:gap-2 pb-0 pr-0 w-auto">
+            {/* Botones de acción alineados horizontalmente */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={isLoading || isProcessingImg}
+              onClick={() => fileInputFileRef.current?.click()}
+              className="h-9 w-9 sm:h-9 sm:w-9 rounded-full text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-all active:scale-95"
+              title="Galería"
+            >
+              <ImageIcon className="size-5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={isLoading || isProcessingImg}
+              onClick={() => fileInputCameraRef.current?.click()}
+              className="h-9 w-9 sm:h-9 sm:w-9 rounded-full text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 transition-all active:scale-95"
+              title="Cámara"
+            >
+              <Camera className="size-5" />
+            </Button>
             {/* Botón de Enviar */}
             <Button
               type="button"
               onClick={handleSubmit}
               disabled={isDisabled}
               className={`
-                h-9 px-4 rounded-xl font-semibold text-sm transition-all duration-200 shadow-md
+                h-10 sm:h-9 px-4 sm:px-4 rounded-xl font-semibold text-sm transition-all duration-200 shadow-md
                 ${isDisabled 
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none' 
                   : 'bg-gradient-to-b from-[#234c9f] to-[#142a66] hover:from-[#2f5bbd] hover:to-[#19377e] text-white hover:text-white border border-white/15 shadow-[0_8px_20px_rgba(30,58,138,0.35)] backdrop-blur-md active:scale-[0.97]'
@@ -271,8 +267,8 @@ export function ChatInput({ onSendMessage, isLoading = false }: ChatInputProps) 
           <input ref={fileInputFileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
         </div>
 
-        {/* Hints Footer */}
-        <div className="hidden sm:flex justify-center gap-5 text-[11px] text-gray-400 font-medium select-none">
+        {/* Hints Footer (solo en desktop) */}
+        <div className="hidden sm:flex justify-center gap-5 text-[11px] text-gray-400 font-medium select-none pt-1 sm:pt-0 flex-wrap">
           <span className="flex items-center gap-1.5"><kbd>↵</kbd> enviar</span>
           <span className="flex items-center gap-1.5"><kbd>shift + ↵</kbd> nueva línea</span>
           <span>Arrastra o pega imágenes</span>

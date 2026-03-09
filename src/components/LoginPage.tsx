@@ -5,7 +5,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Bot, Lock, Mail, AlertCircle, Loader2, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, AlertCircle, Loader2, ArrowLeft, ShieldCheck } from 'lucide-react';
+
+import favicon from '../../public/favicon.svg';
 
 export function LoginPage() {
     const [showPassword, setShowPassword] = useState(false);
@@ -107,8 +109,8 @@ export function LoginPage() {
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center gap-3 mb-2"
           >
-            <div className="h-11 w-11 flex items-center justify-center rounded-xl bg-gradient-to-b from-[#234c9f] to-[#142a66] shadow-[0_8px_20px_rgba(30,58,138,0.35)] border border-white/15 backdrop-blur-md">
-              <Bot className="text-orange-500 size-6" />
+            <div className="h-11 w-11 flex items-center justify-center rounded-xl bg-gradient-to-b from-[#234c9f] to-[#142a66] shadow-[0_8px_20px_rgba(30,58,138,0.35)] border border-white/15 backdrop-blur-md overflow-hidden">
+              <img src={favicon} alt="GeoNetBot Logo" className="w-8 h-8 object-contain relative z-10" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">GeoNetBot</h1>
           </motion.div>

@@ -1,4 +1,7 @@
-import { Bot, Activity, ImageIcon, Wifi, Server } from 'lucide-react';
+import { Activity, ImageIcon, Wifi, Server } from 'lucide-react';
+
+// SVG import (favicon)
+import favicon from '../../public/favicon.svg';
 
 interface EmptyChatProps {
   onSelectQuery?: (query: string) => void;
@@ -49,8 +52,8 @@ export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
           
           {/* Header Responsive */}
           <div className="text-center space-y-3 sm:space-y-4">
-            <div className="inline-flex items-center justify-center size-14 sm:size-16 bg-[#1e3a8a] rounded-2xl mb-1 shadow-lg shadow-[#1e3a8a]/25 relative">
-              <Bot className="size-7 sm:size-8 text-orange-500 relative z-10" />
+            <div className="inline-flex items-center justify-center size-14 sm:size-16 bg-[#1e3a8a] rounded-2xl mb-1 shadow-lg shadow-[#1e3a8a]/25 relative overflow-hidden">
+              <img src={favicon} alt="GeoNetBot Logo" className="w-9 h-9 sm:w-11 sm:h-11 object-contain relative z-10" />
             </div>
             
             {/* Texto adaptable: 2xl en móvil -> 4xl en desktop */}
