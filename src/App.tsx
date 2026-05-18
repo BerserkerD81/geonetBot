@@ -804,11 +804,38 @@ function ChatApp() {
       const res = await fetch(`${API_BASE}/admin/users/${userInfo.id}/messages`, {
         credentials: 'include',
       });
-      const data = await res.json();
-      if (!res.ok) return;
+      let data: any;
+      try {
+        data = await res.json();
+      } catch (e) {
+        console.error('openUserHistoryAsChat: response is not valid JSON', { userInfo, status: res.status, text: await res.text().catch(() => '<no-text>') });
+        return;
+      }
+      if (!res.ok) {
+        console.warn('openUserHistoryAsChat: non-ok response', { userInfo, status: res.status, data });
+        return;
+      }
 
-      const history: AdminHistoryMessage[] = data.messages ?? [];
-      if (history.length === 0) return;
+      if (!data) {
+        console.warn('openUserHistoryAsChat: empty payload', { userInfo, data });
+        return;
+      }
+
+      // The backend may return messages directly as `data.messages` (flat list),
+      // or group them inside `data.sessions[].messages`. Support both shapes.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let messagesArray: any[];
+      if (Array.isArray(data.messages)) {
+        messagesArray = data.messages;
+      } else if (Array.isArray(data.sessions)) {
+        messagesArray = (data.sessions as any[]).flatMap((s) => s.messages || []);
+      } else {
+        console.warn('openUserHistoryAsChat: unexpected payload, missing messages array or sessions', { userInfo, data });
+        return;
+      }
+
+      const history: AdminHistoryMessage[] = messagesArray;
+      if (!history.length) return;
 
       const sortedHistory = [...history].sort(
         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -820,14 +847,20 @@ function ChatApp() {
 
       for (let i = 0; i < sortedHistory.length; i++) {
         const msg = sortedHistory[i];
+        // defensive: ensure createdAt exists
+        if (!msg || !msg.createdAt) continue;
         if (currentGroup.length === 0) {
           currentGroup.push(msg);
           continue;
         }
         const prev = currentGroup[currentGroup.length - 1];
+        if (!prev || !prev.createdAt) {
+          currentGroup.push(msg);
+          continue;
+        }
         const diff = new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime();
-        if (diff > THRESHOLD_MS) {
-          groups.push(currentGroup);
+        if (Number.isNaN(diff) || diff > THRESHOLD_MS) {
+          if (currentGroup.length > 0) groups.push(currentGroup);
           currentGroup = [msg];
         } else {
           currentGroup.push(msg);
@@ -835,8 +868,8 @@ function ChatApp() {
       }
       if (currentGroup.length > 0) groups.push(currentGroup);
 
-      const newChats: Chat[] = groups.reverse().map((group, idx) => {
-        const historyMessages: Message[] = group.map((m) => ({
+      const newChats: Chat[] = (groups || []).reverse().map((group, idx) => {
+        const historyMessages: Message[] = (group || []).map((m) => ({
           id: `admin-${userInfo.id}-${m.id}`,
           role: m.role,
           content: m.content,

@@ -1674,7 +1674,7 @@ const handleBulkSubmit = async () => {
                              </div>
                           </div>
                           <span className="text-[10px] bg-neutral-800 text-neutral-400 px-2.5 py-1 rounded-full border border-neutral-700/50">
-                            {olt.onus.length} ONUs
+                            {(olt.onus || []).length} ONUs
                           </span>
                         </div>
                         <div className="overflow-hidden rounded-lg border border-neutral-800/70 bg-black/20">
@@ -1687,7 +1687,7 @@ const handleBulkSubmit = async () => {
                             <div className="col-span-1 text-right">Acción</div>
                           </div>
                           <div className="divide-y divide-neutral-800">
-                            {olt.onus.map((onu) => (
+                            {(olt.onus || []).map((onu) => (
                               <div key={onu.id} className="flex flex-col md:grid md:grid-cols-12 md:items-center gap-3 md:gap-2 px-3 sm:px-4 py-4 md:py-3 text-[13px] hover:bg-neutral-800/30 transition-colors">
                                  <div className="col-span-12 md:col-span-2 flex flex-row md:flex-col justify-between items-start md:justify-center">
                                   <div className="flex flex-col">

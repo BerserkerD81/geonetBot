@@ -138,7 +138,7 @@ export function ChatSidebar({
 
   // Helper de renderizado
   const renderList = (list: Chat[], emptyLabel: string) => {
-    if (list.length === 0) {
+    if (!Array.isArray(list) || list.length === 0) {
       return (
         <div className="p-8 text-center text-gray-400 text-xs">
           {emptyLabel}
@@ -147,7 +147,7 @@ export function ChatSidebar({
     }
     return (
       <div className="px-2 py-3 space-y-0.5">
-        {list.map((chat) => (
+        {(list || []).map((chat) => (
           <ChatItem
             key={chat.id}
             chat={chat}
