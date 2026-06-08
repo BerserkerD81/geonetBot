@@ -2,12 +2,13 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { 
   Bot, Check as CheckIcon, ChevronLeft, ChevronRight, ChevronsUpDown, 
   MapPin, Maximize2, Download, Eye, EyeOff, X, ImageOff, Loader2,
-  Server, HardDrive, Network, Lock
+  Server, HardDrive, Network, Lock, AlertTriangle, ShieldAlert, Trash2, Info
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { useAuth } from '../contexts/AuthContext';
 import { ProcessingModal } from './ProcessingModal';
 
@@ -586,6 +587,14 @@ export function ChatMessage({
   const monitorRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showRunningConfig, setShowRunningConfig] = useState(false);
   const [showFullStatusInfo, setShowFullStatusInfo] = useState(false);
+  const [confirmBajaOpen, setConfirmBajaOpen] = useState(false);
+  const [pendingConfirmAction, setPendingConfirmAction] = useState<{
+    resolved: string;
+    actionPayload?: string;
+    value?: string;
+    actionId?: string;
+    showProcessing: boolean;
+  } | null>(null);
   
   // Estado para la animación
   const [displayedContent, setDisplayedContent] = useState('');
@@ -616,6 +625,7 @@ export function ChatMessage({
   const [processingStatus, setProcessingStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [processingTitle, setProcessingTitle] = useState<string | undefined>(undefined);
   const [processingDescription, setProcessingDescription] = useState<string | undefined>(undefined);
+  const confirmBajaTarget = pendingConfirmAction?.value?.trim() || 'el cliente seleccionado';
 
   useEffect(() => {
     return () => {
@@ -967,11 +977,8 @@ export function ChatMessage({
   };
 
   // Decide whether to replace the current assistant message (refresh) or send a normal action
-  const invokeAction = (actionPayload?: string, value?: string, actionId?: string, showProcessing: boolean = true) => {
+  const executeResolvedAction = (resolved: string, actionPayload?: string, value?: string, actionId?: string, showProcessing: boolean = true) => {
     if (disableActionButtons) return;
-
-    const resolved = resolvePayload(actionPayload, value);
-    if (!resolved) return;
 
     const lowSource = ((actionId || actionPayload || value) || '').toString().toLowerCase();
     const lockSource = `${actionId || ''} ${actionPayload || ''} ${value || ''} ${resolved}`.toLowerCase();
@@ -1036,6 +1043,22 @@ export function ChatMessage({
     };
 
     void run();
+  };
+
+  const invokeAction = (actionPayload?: string, value?: string, actionId?: string, showProcessing: boolean = true) => {
+    if (disableActionButtons) return;
+
+    const resolved = resolvePayload(actionPayload, value);
+    if (!resolved) return;
+
+    const needsBajaConfirmation = /^dar\s+(?:de\s+)?baja\s+submit\s+\d+/i.test(resolved.trim());
+    if (needsBajaConfirmation) {
+      setPendingConfirmAction({ resolved, actionPayload, value, actionId, showProcessing });
+      setConfirmBajaOpen(true);
+      return;
+    }
+
+    executeResolvedAction(resolved, actionPayload, value, actionId, showProcessing);
   };
 
   const handleOnuSelect = (onu: OnuEntry, olt: OltEntry) => {
@@ -1899,6 +1922,84 @@ const handleBulkSubmit = async () => {
         title={processingTitle}
         description={processingDescription}
       />
+
+      <Dialog
+        open={confirmBajaOpen}
+        onOpenChange={(open) => {
+          setConfirmBajaOpen(open);
+          if (!open) setPendingConfirmAction(null);
+        }}
+      >
+        <DialogContent className="max-w-lg overflow-hidden border-[#1e3a8a]/15 bg-white p-0 shadow-[0_30px_90px_rgba(30,58,138,0.18)]">
+          <div className="relative overflow-hidden">
+            <div className="absolute inset-0 bg-white" />
+            <div className="relative border-b border-[#1e3a8a]/10 px-6 py-6 md:px-7">
+              <div className="flex items-start gap-4 pr-8">
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[#fff4eb] text-[#f5831f] ring-1 ring-[#f5831f]/20 shadow-sm">
+                  <AlertTriangle className="size-5" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-3">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-[#f5831f]/25 bg-[#fff4eb] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#1e3a8a]">
+                    <ShieldAlert className="size-3.5" />
+                    Acción irreversible
+                  </div>
+                  <DialogHeader className="items-start text-left">
+                    <DialogTitle className="text-2xl font-bold tracking-tight text-[#1e3a8a]">
+                      Confirmar baja de cliente
+                    </DialogTitle>
+                    <DialogDescription className="max-w-[34rem] text-sm leading-relaxed text-slate-600">
+                      Vas a ejecutar la baja en WispHub para <span className="font-semibold text-[#1e3a8a]">{confirmBajaTarget}</span>. Revisa el nombre antes de continuar.
+                    </DialogDescription>
+                  </DialogHeader>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-[#1e3a8a]/12 bg-white p-4 shadow-[0_1px_0_rgba(255,255,255,0.9)_inset]">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#1e3a8a] text-white shadow-sm">
+                    <Info className="size-4" />
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-semibold text-[#1e3a8a]">Cliente seleccionado</p>
+                    <p className="break-words text-sm text-slate-700">{confirmBajaTarget}</p>
+                    <p className="text-xs leading-relaxed text-slate-500">
+                      Si el cliente no coincide con lo esperado, cancela y vuelve a seleccionar el registro correcto.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="mt-6 gap-3 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setConfirmBajaOpen(false);
+                    setPendingConfirmAction(null);
+                  }}
+                  className="h-11 border-[#1e3a8a]/20 bg-white text-[#1e3a8a] hover:bg-[#f8fbff] hover:text-[#142a66]"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    const action = pendingConfirmAction;
+                    setConfirmBajaOpen(false);
+                    setPendingConfirmAction(null);
+                    if (!action) return;
+                    executeResolvedAction(action.resolved, action.actionPayload, action.value, action.actionId, action.showProcessing);
+                  }}
+                  className="h-11 bg-[#f5831f] text-white shadow-[0_14px_28px_rgba(245,131,31,0.28)] hover:bg-[#e77712]"
+                >
+                  <Trash2 className="size-4" />
+                  Confirmar baja
+                </Button>
+              </DialogFooter>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* --- MODAL ZOOM --- */}
       {isZoomed && (zoomImageUrl || imageDataUrl) && (

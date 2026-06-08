@@ -36,6 +36,12 @@ export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
     },
     {
       icon: Activity,
+      title: 'Dar de baja cliente',
+      query: 'dar de bajacliente',
+      description: 'Busca por nombre o RUT y confirma la baja del cliente'
+    },
+    {
+      icon: Activity,
       title: 'Monitoreo de cliente',
       query: 'monitoreo cliente',
       description: 'Consulta el estado y métricas de un cliente en tiempo real'
