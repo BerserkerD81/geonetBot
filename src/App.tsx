@@ -6,11 +6,17 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatMessage } from './components/ChatMessage';
-import { ChatInput } from './components/ChatInput';
 import { EmptyChat } from './components/EmptyChat';
+import { AuthWizard } from './components/AuthWizard';
+import { ChangeOnuWizard } from './components/ChangeOnuWizard';
+import { WifiWizard } from './components/WifiWizard';
+import { MonitorWizard } from './components/MonitorWizard';
+import { BajaClienteWizard } from './components/BajaClienteWizard';
+import { FotosWizard } from './components/FotosWizard';
+import { WizardHistoryPanel } from './components/WizardHistoryPanel';
 import { SearchModal } from './components/SearchModal';
 import { ScrollArea } from './components/ui/scroll-area';
-import { Search, PanelLeft, Loader2 } from 'lucide-react';
+import { Search, PanelLeft, Loader2, History } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { AdminUserPanel } from './components/AdminUserPanel';
 import { UserAccountPanel } from './components/UserAccountPanel';
@@ -109,6 +115,9 @@ function ChatApp() {
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showUserPanel, setShowUserPanel] = useState(false);
+  const [wizardMode, setWizardMode] = useState<'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos' | null>(null);
+  const [wizardInitialData, setWizardInitialData] = useState<Record<string, any> | null>(null);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   
   // Scroll & Highlights
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -930,6 +939,13 @@ function ChatApp() {
     void preloadAllHistories();
   }, [isAdmin, openUserHistoryAsChat]);
 
+  // Handle wizard resume from history panel
+  const handleWizardResume = useCallback((type: string, resumeData: Record<string, any>) => {
+    setShowHistoryPanel(false);
+    setWizardInitialData(resumeData);
+    setWizardMode(type as 'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos');
+  }, []);
+
   // -------------------------------------------------------------------------
   // 7. EFECTOS UI: SCROLL INFINITO, AUTO-SCROLL Y SINCRONIZACIÓN DE RUTAS
   // -------------------------------------------------------------------------
@@ -1288,6 +1304,15 @@ function ChatApp() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => setShowHistoryPanel(true)}
+                    className="h-9 px-3 gap-2 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 rounded-lg transition-all duration-200"
+                  >
+                    <History className="size-4" />
+                    <span className="hidden sm:inline text-xs font-medium">Flujos</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setSearchOpen(true)}
                     className="h-9 px-3 gap-2 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 rounded-lg transition-all duration-200"
                   >
@@ -1299,6 +1324,26 @@ function ChatApp() {
                   </Button>
                 </div>
               </header>
+              {/* Wizard History Panel */}
+              <AnimatePresence>
+                {showHistoryPanel && (
+                  <motion.div
+                    key="history-panel"
+                    className="absolute inset-0 z-30 overflow-hidden"
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '100%', opacity: 0 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <WizardHistoryPanel
+                      apiBase={API_BASE}
+                      isAdmin={isAdmin}
+                      onResume={handleWizardResume}
+                      onClose={() => setShowHistoryPanel(false)}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               {/* Messages Area */}
               {currentChat ? (
                 <ScrollArea className="flex-1 overflow-y-auto bg-gray-50 pt-14" ref={scrollViewportRef}>
@@ -1352,20 +1397,54 @@ function ChatApp() {
                   )}
                 </ScrollArea>
               ) : (
-                <div className="flex-1 overflow-y-auto bg-gray-50 pt-14">
-                  <EmptyChat onSelectQuery={handleSendMessage} disabled={isAwaitingResponse} />
+                <div className="flex-1 overflow-y-auto bg-gray-50 pt-14 relative">
+                  <EmptyChat onSelectQuery={handleSendMessage} onStartWizard={setWizardMode} disabled={isAwaitingResponse} />
+                  <AnimatePresence>
+                    {wizardMode === 'auth' && (
+                      <motion.div key="auth-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                        <AuthWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                          initialData={wizardInitialData as any} />
+                      </motion.div>
+                    )}
+                    {wizardMode === 'change-onu' && (
+                      <motion.div key="change-onu-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                        <ChangeOnuWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                          initialData={wizardInitialData as any} />
+                      </motion.div>
+                    )}
+                    {wizardMode === 'wifi' && (
+                      <motion.div key="wifi-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                        <WifiWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                          initialData={wizardInitialData as any} />
+                      </motion.div>
+                    )}
+                    {wizardMode === 'monitor' && (
+                      <motion.div key="monitor-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                        <MonitorWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                          initialData={wizardInitialData as any} />
+                      </motion.div>
+                    )}
+                    {wizardMode === 'baja' && (
+                      <motion.div key="baja-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                        <BajaClienteWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                          initialData={wizardInitialData as any} />
+                      </motion.div>
+                    )}
+                    {wizardMode === 'fotos' && (
+                      <motion.div key="fotos-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                        <FotosWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                          initialData={wizardInitialData as any} />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
-              {/* Input */}
-              <div className="flex-shrink-0">
-                {currentChat && currentChat.isAdminHistory && isAdmin ? (
-                  <div className="px-4 py-2 text-xs text-orange-600 text-center bg-orange-50 border-t border-orange-100 font-medium">
-                    Vista de historial de usuario (solo lectura).
-                  </div>
-                ) : (
-                  <ChatInput onSendMessage={handleSendMessage} isLoading={isAwaitingResponse} />
-                )}
-              </div>
+              {/* Admin history banner */}
+              {currentChat && currentChat.isAdminHistory && isAdmin && (
+                <div className="flex-shrink-0 px-4 py-2 text-xs text-orange-600 text-center bg-orange-50 border-t border-orange-100 font-medium">
+                  Vista de historial de usuario (solo lectura).
+                </div>
+              )}
             </div>
           </div>
         }
@@ -1469,6 +1548,15 @@ function ChatApp() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => setShowHistoryPanel(true)}
+                    className="h-9 px-3 gap-2 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 rounded-lg transition-all duration-200"
+                  >
+                    <History className="size-4" />
+                    <span className="hidden sm:inline text-xs font-medium">Flujos</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setSearchOpen(true)}
                     className="h-9 px-3 gap-2 text-[#1e3a8a] hover:text-[#f5831f] hover:bg-[#1e3a8a]/10 rounded-lg transition-all duration-200"
                   >
@@ -1480,11 +1568,66 @@ function ChatApp() {
                   </Button>
                 </div>
               </header>
-              <div className="flex-1 overflow-y-auto bg-gray-50 pt-14">
-                <EmptyChat onSelectQuery={handleSendMessage} disabled={isAwaitingResponse} />
-              </div>
-              <div className="flex-shrink-0">
-                <ChatInput onSendMessage={handleSendMessage} isLoading={isAwaitingResponse} />
+              {/* Wizard History Panel */}
+              <AnimatePresence>
+                {showHistoryPanel && (
+                  <motion.div
+                    key="history-panel"
+                    className="absolute inset-0 z-30 overflow-hidden"
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '100%', opacity: 0 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <WizardHistoryPanel
+                      apiBase={API_BASE}
+                      isAdmin={isAdmin}
+                      onResume={handleWizardResume}
+                      onClose={() => setShowHistoryPanel(false)}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <div className="flex-1 overflow-y-auto bg-gray-50 pt-14 relative">
+                <EmptyChat onSelectQuery={handleSendMessage} onStartWizard={setWizardMode} disabled={isAwaitingResponse} />
+                <AnimatePresence>
+                  {wizardMode === 'auth' && (
+                    <motion.div key="auth-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                      <AuthWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                        initialData={wizardInitialData as any} />
+                    </motion.div>
+                  )}
+                  {wizardMode === 'change-onu' && (
+                    <motion.div key="change-onu-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                      <ChangeOnuWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                        initialData={wizardInitialData as any} />
+                    </motion.div>
+                  )}
+                  {wizardMode === 'wifi' && (
+                    <motion.div key="wifi-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                      <WifiWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                        initialData={wizardInitialData as any} />
+                    </motion.div>
+                  )}
+                  {wizardMode === 'monitor' && (
+                    <motion.div key="monitor-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                      <MonitorWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                        initialData={wizardInitialData as any} />
+                    </motion.div>
+                  )}
+                  {wizardMode === 'baja' && (
+                    <motion.div key="baja-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                      <BajaClienteWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                        initialData={wizardInitialData as any} />
+                    </motion.div>
+                  )}
+                  {wizardMode === 'fotos' && (
+                    <motion.div key="fotos-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                      <FotosWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
+                        initialData={wizardInitialData as any} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
           </div>

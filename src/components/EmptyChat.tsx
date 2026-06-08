@@ -5,46 +5,53 @@ import favicon from '../../public/favicon.svg';
 
 interface EmptyChatProps {
   onSelectQuery?: (query: string) => void;
+  onStartWizard?: (type: 'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos') => void;
   disabled?: boolean;
 }
 
-export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
+export function EmptyChat({ onSelectQuery, onStartWizard, disabled = false }: EmptyChatProps) {
   const exampleQueries = [
     {
       icon: Activity,
       title: 'Instalaciones pendientes de autorizar',
       query: 'Enséñame las instalaciones pendientes de evidencia para autorizar el alta',
-      description: 'Controla las órdenes donde aún faltan fotos o datos'
+      description: 'Controla las órdenes donde aún faltan fotos o datos',
+      wizardType: 'auth' as const,
     },
     {
       icon: ImageIcon,
       title: 'Agregar fotos a clientes',
       query: 'quiero agregar fotos de instalaicion',
-      description: 'Carga evidencias para un cliente específico'
+      description: 'Carga evidencias para un cliente específico',
+      wizardType: 'fotos' as const,
     },
     {
       icon: Wifi,
       title: 'Cambiar WiFi',
       query: 'cambiar wifi',
-      description: 'Actualiza la configuración de red inalámbrica actualmente solo funciona en ONUs ZTE'
+      description: 'Actualiza la configuración de red inalámbrica actualmente solo funciona en ONUs ZTE',
+      wizardType: 'wifi' as const,
     },
     {
       icon: Server,
       title: 'Cambiar ONU',
       query: 'cambiar onu',
-      description: 'Gestiona el reemplazo de una ONU'
+      description: 'Gestiona el reemplazo de una ONU',
+      wizardType: 'change-onu' as const,
     },
     {
       icon: Activity,
       title: 'Dar de baja cliente',
       query: 'dar de bajacliente',
-      description: 'Busca por nombre o RUT y confirma la baja del cliente'
+      description: 'Busca por nombre o RUT y confirma la baja del cliente',
+      wizardType: 'baja' as const,
     },
     {
       icon: Activity,
       title: 'Monitoreo de cliente',
       query: 'monitoreo cliente',
-      description: 'Consulta el estado y métricas de un cliente en tiempo real'
+      description: 'Consulta el estado y métricas de un cliente en tiempo real',
+      wizardType: 'monitor' as const,
     },
   ];
 
@@ -84,7 +91,13 @@ export function EmptyChat({ onSelectQuery, disabled = false }: EmptyChatProps) {
                 return (
                   <button
                     key={index}
-                    onClick={() => onSelectQuery?.(example.query)}
+                    onClick={() => {
+                      if ('wizardType' in example && example.wizardType && onStartWizard) {
+                        onStartWizard(example.wizardType);
+                      } else {
+                        onSelectQuery?.(example.query);
+                      }
+                    }}
                     disabled={disabled}
                     className={`group p-4 rounded-xl bg-white border border-gray-200 text-left relative overflow-hidden transition-all duration-200 ${
                       disabled
