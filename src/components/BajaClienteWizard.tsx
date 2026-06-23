@@ -239,7 +239,7 @@ export function BajaClienteWizard({ apiBase, onClose, initialData }: BajaCliente
         <div className="absolute inset-0 z-50 bg-white/80 flex flex-col items-center justify-center gap-3">
           <Loader2 className="size-8 animate-spin text-red-500" />
           <p className="text-sm font-medium text-gray-600">Ejecutando baja...</p>
-          <p className="text-xs text-gray-400">Eliminando producto WiFi y dando de baja en Geonet</p>
+          <p className="text-xs text-gray-400">Eliminando producto WiFi, ONU en SmartOLT y dando de baja en Geonet</p>
         </div>
       )}
 

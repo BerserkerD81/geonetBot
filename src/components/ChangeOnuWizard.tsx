@@ -5,6 +5,7 @@ import {
   RefreshCw, Wifi, ChevronRight, ArrowLeftRight, Eye, EyeOff
 } from 'lucide-react';
 import { Button } from './ui/button';
+import { SignalPanel } from './SignalPanel';
 import { useWizardLogger } from '../hooks/useWizardLogger';
 
 // ---------------------------------------------------------------------------
@@ -137,6 +138,23 @@ function TextInput({ value, onChange, placeholder, readOnly, monospace }: {
   );
 }
 
+function PasswordInput({ value, onChange, placeholder }: {
+  value: string; onChange: (v: string) => void; placeholder?: string;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input type={show ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 pr-9 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/30 focus:border-[#1e3a8a] transition-colors" />
+      <button type="button" onClick={() => setShow(s => !s)}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+        {show ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+      </button>
+    </div>
+  );
+}
+
 function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   if (!value) return null;
   return (
@@ -157,82 +175,7 @@ function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-const WIFI_MODELS = ['ZTEF6600P', 'ZXHNF600P'];
-function isWifiModel(m: string) {
-  return WIFI_MODELS.includes(String(m).toUpperCase().replace(/[- ]/g, ''));
-}
 
-function WifiSection({ newModel, newSn, ssid, onSsid, pass, onPass, applying, done, results, onApply, onSkip }: {
-  newModel: string; newSn: string;
-  ssid: string; onSsid: (v: string) => void;
-  pass: string; onPass: (v: string) => void;
-  applying: boolean; done: boolean;
-  results: string[]; onApply: () => void; onSkip: () => void;
-}) {
-  const [showPass, setShowPass] = useState(false);
-  const compatible = isWifiModel(newModel);
-  const applied = done && results.some(r => r.startsWith('✅'));
-  const failed = done && !results.some(r => r.startsWith('✅'));
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-        <div>
-          <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Configurar WiFi</h3>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {newModel ? `${newModel} · SN: ${newSn}` : `SN: ${newSn}`}
-            {!compatible && newModel && <span className="ml-1.5 text-amber-500">— modelo sin WiFi conocido</span>}
-          </p>
-        </div>
-        {done && <StatusBadge ok={applied} label={applied ? 'Aplicado' : failed ? 'Error' : 'Saltado'} />}
-      </div>
-      <div className="p-4 space-y-3">
-        {!done ? (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FieldGroup label="Nombre WiFi (SSID)">
-                <TextInput value={ssid} onChange={onSsid} placeholder="Mi Red WiFi" />
-              </FieldGroup>
-              <FieldGroup label={`Contraseña${pass.length > 0 && pass.length < 8 ? ' — mín. 8 chars' : ''}`}>
-                <div className="relative">
-                  <input
-                    type={showPass ? 'text' : 'password'}
-                    value={pass}
-                    onChange={e => onPass(e.target.value)}
-                    placeholder="Mínimo 8 caracteres"
-                    className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 pr-9 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/30 focus:border-[#1e3a8a] transition-colors"
-                  />
-                  <button type="button" onClick={() => setShowPass(v => !v)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
-                    {showPass ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                  </button>
-                </div>
-              </FieldGroup>
-            </div>
-            {ssid && pass.length >= 8 && (
-              <div className="px-3 py-2 bg-[#1e3a8a]/5 border border-[#1e3a8a]/10 rounded-lg text-xs text-gray-600 space-y-0.5">
-                <p><span className="font-medium">2.4GHz:</span> {ssid}</p>
-                <p><span className="font-medium">5GHz:</span> {ssid}_5G</p>
-              </div>
-            )}
-            <div className="flex gap-2">
-              <Button size="sm" disabled={applying || !ssid.trim() || pass.length < 8} onClick={onApply}
-                className="bg-[#1e3a8a] hover:bg-[#1e3a8a]/90 text-white">
-                {applying ? <><Loader2 className="size-3.5 animate-spin mr-1.5" />Aplicando...</> : <><Wifi className="size-3.5 mr-1.5" />Aplicar WiFi</>}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={onSkip} className="text-gray-500">Saltar</Button>
-            </div>
-          </>
-        ) : (
-          <div className="space-y-1">
-            {results.map((r, i) => <p key={i} className="text-sm text-gray-700">{r}</p>)}
-            {!results.length && <p className="text-sm text-gray-400 italic">WiFi saltado</p>}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -260,18 +203,27 @@ export function ChangeOnuWizard({ apiBase, onClose, initialData }: ChangeOnuWiza
   const [newModel, setNewModel] = useState('');
   const [selectedOnuIdx, setSelectedOnuIdx] = useState<number | null>(null);
 
+  const [refreshingOnus, setRefreshingOnus] = useState(false);
+  const [signalRefreshKey, setSignalRefreshKey] = useState(0);
+
   // Step 2: submitting
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<{
     ok: boolean; results: string[]; wifiRequired: boolean; newSn: string; newModel: string; error?: string;
   } | null>(null);
 
-  // Step 3: WiFi
-  const [wifiSsid, setWifiSsid] = useState('');
-  const [wifiPass, setWifiPass] = useState('');
+  // Step 3: WiFi via TR069 + GenieACS
   const [applyingWifi, setApplyingWifi] = useState(false);
   const [wifiDone, setWifiDone] = useState(false);
   const [wifiResults, setWifiResults] = useState<string[]>([]);
+  const [wifiSsid, setWifiSsid] = useState('');
+  const [wifiPass, setWifiPass] = useState('');
+
+  // Step 3: background GenieACS task
+  const [genieTaskQueued, setGenieTaskQueued] = useState(false);
+  const [genieTaskStatus, setGenieTaskStatus] = useState<'pending' | 'success' | 'failed'>('pending');
+  const [genieTaskAttempts, setGenieTaskAttempts] = useState(0);
+  const [genieTaskResults, setGenieTaskResults] = useState<string[]>([]);
 
   // Resume: trigger prepare when initialData lands on step 1
   useEffect(() => {
@@ -348,6 +300,26 @@ export function ChangeOnuWizard({ apiBase, onClose, initialData }: ChangeOnuWiza
     setNewSn(onu.sn);
   }, []);
 
+  // ── Refresh unconfigured ONUs from backend
+  const handleRefreshOnus = useCallback(async () => {
+    if (!selectedClient) return;
+    setRefreshingOnus(true);
+    try {
+      const res = await apiCall(apiBase, '/wizard/change-onu/prepare', {
+        method: 'POST',
+        body: JSON.stringify({ clientId: selectedClient.id_servicio }),
+      });
+      const data: PrepareResponse = await res.json();
+      if (data.ok) {
+        setPrepareData((prev: PrepareResponse | null) => prev ? { ...prev, unconfiguredOnus: data.unconfiguredOnus } : data);
+        setSignalRefreshKey((k: number) => k + 1);
+      }
+    } catch { /* silent */ }
+    finally {
+      setRefreshingOnus(false);
+    }
+  }, [apiBase, selectedClient]);
+
   // ── Submit ONU change
   const handleSubmit = useCallback(async () => {
     if (!selectedClient || !prepareData) return;
@@ -394,29 +366,38 @@ export function ChangeOnuWizard({ apiBase, onClose, initialData }: ChangeOnuWiza
     }
   }, [apiBase, selectedClient, prepareData, newSn, newModel, logStep, completeSession]);
 
-  // ── Apply WiFi
+  // ── Apply TR069 + disable SmartOLT WiFi + GenieACS SSID/pass
   const handleApplyWifi = useCallback(async () => {
+    const sn = submitResult?.newSn || newSn;
+    if (!sn || !wifiSsid || !wifiPass) return;
     setApplyingWifi(true);
     try {
-      const sn = submitResult?.newSn || newSn;
       const res = await apiCall(apiBase, '/wizard/auth/wifi', {
         method: 'POST',
-        body: JSON.stringify({ sn, ssid: wifiSsid, pass: wifiPass }),
+        body: JSON.stringify({ sn, ssid: wifiSsid, pass: wifiPass, clientIp: selectedClient?.ip }),
       });
       const data = await res.json();
       const results: string[] = data.results || [];
       const ok = data.ok && results.some((r: string) => r.startsWith('✅'));
       setWifiResults(results);
       setWifiDone(true);
-      logStep('wifi-apply', 'WiFi aplicado', ok ? 'ok' : 'error', {
-        inputData: { sn, ssid: wifiSsid },
+      if (data.genieTaskQueued) {
+        setGenieTaskQueued(true);
+        setGenieTaskStatus('pending');
+        setGenieTaskAttempts(0);
+        setGenieTaskResults([]);
+      }
+      logStep('wifi-genieacs', 'TR069 + WiFi SmartOLT + GenieACS', ok || data.genieTaskQueued ? 'ok' : 'error', {
+        inputData: { sn, ssid: wifiSsid, clientIp: selectedClient?.ip },
         outputData: { results },
       });
-      if (selectedClient) completeSession(`ONU y WiFi configurados para ${clientFullName(selectedClient)}`);
+      if (ok && !data.genieTaskQueued && selectedClient) {
+        completeSession(`ONU cambiada y WiFi configurado para ${clientFullName(selectedClient)}`);
+      }
     } catch (e: any) {
       setWifiResults([`❌ Error: ${e.message}`]);
       setWifiDone(true);
-      logStep('wifi-apply', 'WiFi aplicado', 'error', { errorMsg: e.message });
+      logStep('wifi-genieacs', 'TR069 + WiFi SmartOLT + GenieACS', 'error', { errorMsg: e.message });
     } finally {
       setApplyingWifi(false);
     }
@@ -426,13 +407,38 @@ export function ChangeOnuWizard({ apiBase, onClose, initialData }: ChangeOnuWiza
     setStep(0); setSelectedClient(null); setPrepareData(null);
     setSearchResults(null); setSearchNombre(''); setSearchRut('');
     setNewSn(''); setNewModel(''); setSelectedOnuIdx(null);
-    setSubmitResult(null); setWifiDone(false); setWifiSsid(''); setWifiPass(''); setWifiResults([]);
+    setSubmitResult(null); setWifiDone(false); setWifiResults([]); setWifiSsid(''); setWifiPass('');
+    setGenieTaskQueued(false); setGenieTaskStatus('pending'); setGenieTaskAttempts(0); setGenieTaskResults([]);
   }, []);
 
   const currentOnu = prepareData?.currentOnu;
   const unconfiguredOnus = prepareData?.unconfiguredOnus || [];
   const onuTypes = prepareData?.onuTypes || [];
   const canProceedFromStep1 = !!newSn && !!newModel && !!currentOnu?.externalId;
+
+  // Poll background GenieACS task
+  useEffect(() => {
+    if (!genieTaskQueued || genieTaskStatus !== 'pending') return;
+    const sn = submitResult?.newSn || newSn;
+    if (!sn) return;
+    const id = setInterval(async () => {
+      try {
+        const res = await apiCall(apiBase, `/wizard/auth/wifi/task-status?sn=${encodeURIComponent(sn)}`);
+        const data = await res.json();
+        if (data.task) {
+          setGenieTaskAttempts(data.task.attempts);
+          setGenieTaskResults(data.task.results || []);
+          if (data.task.status !== 'pending') {
+            setGenieTaskStatus(data.task.status);
+            if (data.task.status === 'success' && selectedClient) {
+              completeSession(`ONU cambiada y WiFi configurado para ${clientFullName(selectedClient)}`);
+            }
+          }
+        }
+      } catch {}
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [genieTaskQueued, genieTaskStatus, submitResult?.newSn, newSn, apiBase, selectedClient, completeSession]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -590,23 +596,28 @@ export function ChangeOnuWizard({ apiBase, onClose, initialData }: ChangeOnuWiza
                     </div>
 
                     {/* Unconfigured ONUs picker */}
-                    {unconfiguredOnus.length > 0 && (
-                      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-                          <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">ONUs sin asignar — selecciona para autocompletar SN nuevo</h3>
-                        </div>
-                        <div className="p-3 flex flex-wrap gap-2">
-                          {unconfiguredOnus.map((onu, idx) => (
-                            <button key={idx} onClick={() => handlePickOnu(onu, idx)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-mono border transition-all
-                                ${selectedOnuIdx === idx ? 'bg-[#1e3a8a] text-white border-[#1e3a8a]' : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-[#1e3a8a]/40 hover:bg-[#1e3a8a]/5'}`}>
-                              <span className="font-semibold">{onu.sn}</span>
-                              <span className="ml-1.5 opacity-60">{onu.oltName} · P{onu.port}</span>
-                            </button>
-                          ))}
-                        </div>
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                        <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">ONUs sin asignar — selecciona para autocompletar SN nuevo</h3>
+                        <button onClick={handleRefreshOnus} disabled={refreshingOnus}
+                          className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#1e3a8a] transition-colors disabled:opacity-40">
+                          <RefreshCw className={`size-3 ${refreshingOnus ? 'animate-spin' : ''}`} />
+                          Actualizar
+                        </button>
                       </div>
-                    )}
+                      <div className="p-3 flex flex-wrap gap-2">
+                        {unconfiguredOnus.length === 0 ? (
+                          <p className="text-xs text-gray-400 px-1 py-0.5">No hay ONUs sin asignar. Presiona Actualizar para buscar.</p>
+                        ) : unconfiguredOnus.map((onu, idx) => (
+                          <button key={idx} onClick={() => handlePickOnu(onu, idx)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-mono border transition-all
+                              ${selectedOnuIdx === idx ? 'bg-[#1e3a8a] text-white border-[#1e3a8a]' : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-[#1e3a8a]/40 hover:bg-[#1e3a8a]/5'}`}>
+                            <span className="font-semibold">{onu.sn}</span>
+                            <span className="ml-1.5 opacity-60">{onu.oltName} · P{onu.port}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
                     {/* New ONU form */}
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -682,25 +693,87 @@ export function ChangeOnuWizard({ apiBase, onClose, initialData }: ChangeOnuWiza
                     </div>
                   </div>
 
-                  {/* WiFi section — always shown after successful change */}
-                  {submitResult?.ok && (
-                    <WifiSection
-                      newModel={submitResult.newModel}
-                      newSn={submitResult.newSn}
-                      ssid={wifiSsid}
-                      onSsid={setWifiSsid}
-                      pass={wifiPass}
-                      onPass={setWifiPass}
-                      applying={applyingWifi}
-                      done={wifiDone}
-                      results={wifiResults}
-                      onApply={handleApplyWifi}
-                      onSkip={() => {
-                        setWifiDone(true);
-                        logStep('wifi-apply', 'WiFi saltado', 'skipped', {});
-                        if (selectedClient) completeSession(`ONU cambiada para ${clientFullName(selectedClient)} (WiFi saltado)`);
-                      }}
+                  {/* Signal level */}
+                  {submitResult?.ok && selectedClient && (
+                    <SignalPanel
+                      apiBase={apiBase}
+                      clientId={selectedClient.id_servicio}
+                      sn={submitResult.newSn}
+                      refreshTrigger={signalRefreshKey}
                     />
+                  )}
+
+                  {/* TR069 + WiFi disable — always shown after successful change */}
+                  {submitResult?.ok && (
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">WiFi vía TR069 (GenieACS)</h3>
+                          <p className="text-xs text-gray-400 mt-0.5">{submitResult.newModel} · SN: {submitResult.newSn}</p>
+                        </div>
+                        {wifiDone && (
+                          <StatusBadge
+                            ok={wifiResults.some(r => r.startsWith('✅'))}
+                            label={wifiResults.some(r => r.startsWith('✅')) ? 'Listo' : 'Error'}
+                          />
+                        )}
+                      </div>
+                      <div className="p-4">
+                        {!wifiDone ? (
+                          <div className="space-y-3">
+                            <FieldGroup label="SSID (nombre de red)">
+                              <TextInput value={wifiSsid} onChange={setWifiSsid} placeholder="Mi Red WiFi" />
+                            </FieldGroup>
+                            <FieldGroup label="Contraseña">
+                              <PasswordInput value={wifiPass} onChange={setWifiPass} placeholder="Mínimo 8 caracteres" />
+                            </FieldGroup>
+                            <div className="flex gap-2">
+                              <Button size="sm" disabled={applyingWifi || !wifiSsid || !wifiPass} onClick={handleApplyWifi}
+                                className="bg-[#1e3a8a] hover:bg-[#1e3a8a]/90 text-white">
+                                {applyingWifi
+                                  ? <><Loader2 className="size-3.5 animate-spin mr-1.5" />Configurando...</>
+                                  : <><Wifi className="size-3.5 mr-1.5" />Configurar WiFi</>}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => {
+                                setWifiDone(true);
+                                logStep('wifi-genieacs', 'WiFi saltado', 'skipped', {});
+                                if (selectedClient) completeSession(`ONU cambiada para ${clientFullName(selectedClient)}`);
+                              }} className="text-gray-500">Saltar</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              {wifiResults.map((r, i) => <p key={i} className="text-sm text-gray-700">{r}</p>)}
+                              {!wifiResults.length && <p className="text-sm text-gray-400 italic">Saltado</p>}
+                            </div>
+                            {genieTaskQueued && (
+                              <div className={`rounded-lg border px-3 py-2.5 flex items-start gap-2 ${
+                                genieTaskStatus === 'pending' ? 'bg-blue-50 border-blue-200 text-blue-800'
+                                : genieTaskStatus === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                : 'bg-red-50 border-red-200 text-red-800'
+                              }`}>
+                                {genieTaskStatus === 'pending'
+                                  ? <Loader2 className="size-4 animate-spin flex-shrink-0 mt-0.5" />
+                                  : genieTaskStatus === 'success'
+                                    ? <CheckCircle2 className="size-4 flex-shrink-0 mt-0.5" />
+                                    : <AlertCircle className="size-4 flex-shrink-0 mt-0.5" />}
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium">
+                                    {genieTaskStatus === 'pending'
+                                      ? `Esperando registro TR069... (intento ${genieTaskAttempts}/28)`
+                                      : genieTaskStatus === 'success'
+                                        ? 'WiFi configurado correctamente por GenieACS'
+                                        : 'No se pudo configurar WiFi automáticamente'}
+                                  </p>
+                                  {genieTaskResults.map((r, i) => <p key={i} className="text-xs mt-0.5 opacity-80">{r}</p>)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
 
                   {/* Finish buttons */}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ElementType } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, CheckCircle2, AlertCircle, Clock, Loader2,
@@ -52,7 +52,7 @@ interface WizardHistoryPanelProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const WIZARD_META: Record<string, { label: string; Icon: React.ElementType; color: string }> = {
+const WIZARD_META: Record<string, { label: string; Icon: ElementType; color: string }> = {
   auth:       { label: 'Autorizar ONU',      Icon: Shield,    color: 'text-[#1e3a8a]' },
   'change-onu': { label: 'Cambiar ONU',      Icon: Server,    color: 'text-purple-600' },
   wifi:       { label: 'Cambiar WiFi',       Icon: Wifi,      color: 'text-sky-600' },

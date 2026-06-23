@@ -46,11 +46,6 @@ const STEPS = [
   { label: 'Resultado' },
 ];
 
-const WIFI_MODELS = ['ZTEF6600P', 'ZXHNF600P'];
-function isWifiModel(m: string) {
-  return WIFI_MODELS.includes(String(m).toUpperCase().replace(/[- ]/g, ''));
-}
-
 function clientFullName(c: ClientResult) {
   return `${c.nombre || ''} ${c.apellidos || ''}`.trim() || c.servicio || `ID ${c.id_servicio}`;
 }
@@ -118,10 +113,9 @@ function PasswordInput({ value, onChange, placeholder }: {
     <div className="relative">
       <input type={show ? 'text' : 'password'} value={value} onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 pr-9 text-sm text-gray-800
-          focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/30 focus:border-[#1e3a8a] transition-colors" />
-      <button type="button" onClick={() => setShow(v => !v)}
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+        className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 pr-9 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/30 focus:border-[#1e3a8a] transition-colors" />
+      <button type="button" onClick={() => setShow(s => !s)}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
         {show ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
       </button>
     </div>
@@ -151,6 +145,8 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
   const [currentOnu, setCurrentOnu] = useState<CurrentOnu | null>(null);
   const [manualSn, setManualSn] = useState('');
   const [loadingPrepare, setLoadingPrepare] = useState(false);
+
+  // Step 1: WiFi form
   const [ssid, setSsid] = useState('');
   const [pass, setPass] = useState('');
 
@@ -158,6 +154,12 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
   const [applying, setApplying] = useState(false);
   const [wifiResults, setWifiResults] = useState<string[]>([]);
   const [wifiOk, setWifiOk] = useState(false);
+
+  // Step 2: background GenieACS task
+  const [genieTaskQueued, setGenieTaskQueued] = useState(false);
+  const [genieTaskStatus, setGenieTaskStatus] = useState<'pending' | 'success' | 'failed'>('pending');
+  const [genieTaskAttempts, setGenieTaskAttempts] = useState(0);
+  const [genieTaskResults, setGenieTaskResults] = useState<string[]>([]);
 
   // Resume: trigger prepare when initialData lands on step 1
   useEffect(() => {
@@ -226,32 +228,38 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
     }
   }, [apiBase, logStep, updateResume]);
 
-  // ── Apply WiFi
+  // ── Apply: TR069 + disable SmartOLT WiFi + GenieACS SSID/pass
   const handleApply = useCallback(async () => {
     const snToUse = currentOnu?.sn || manualSn;
-    if (!snToUse || !ssid || pass.length < 8) return;
+    if (!snToUse || !ssid || !pass) return;
     setApplying(true);
     try {
       const res = await apiCall(apiBase, '/wizard/auth/wifi', {
         method: 'POST',
-        body: JSON.stringify({ sn: snToUse, ssid, pass }),
+        body: JSON.stringify({ sn: snToUse, ssid, pass, clientIp: selectedClient?.ip }),
       });
       const data = await res.json();
       const results: string[] = data.results || [];
       const ok = data.ok && results.some((r: string) => r.startsWith('✅'));
       setWifiResults(results);
       setWifiOk(ok);
-      logStep('wifi-apply', 'WiFi aplicado', ok ? 'ok' : 'error', {
-        inputData: { sn: snToUse, ssid },
+      if (data.genieTaskQueued) {
+        setGenieTaskQueued(true);
+        setGenieTaskStatus('pending');
+        setGenieTaskAttempts(0);
+        setGenieTaskResults([]);
+      }
+      logStep('wifi-genieacs', 'TR069 + WiFi SmartOLT + GenieACS', ok || data.genieTaskQueued ? 'ok' : 'error', {
+        inputData: { sn: snToUse, ssid, clientIp: selectedClient?.ip },
         outputData: { results },
       });
-      if (ok && selectedClient) {
-        completeSession(`WiFi actualizado para ${clientFullName(selectedClient)}`);
+      if (ok && !data.genieTaskQueued && selectedClient) {
+        completeSession(`WiFi configurado para ${clientFullName(selectedClient)}`);
       }
     } catch (e: any) {
       setWifiResults([`❌ Error de conexión: ${e.message}`]);
       setWifiOk(false);
-      logStep('wifi-apply', 'WiFi aplicado', 'error', { errorMsg: e.message });
+      logStep('wifi-genieacs', 'TR069 + WiFi SmartOLT + GenieACS', 'error', { errorMsg: e.message });
     } finally {
       setApplying(false);
       setStep(2);
@@ -262,11 +270,33 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
     setStep(0); setSelectedClient(null); setCurrentOnu(null); setManualSn('');
     setSearchResults(null); setSearchNombre(''); setSearchRut(''); setSearchError('');
     setSsid(''); setPass(''); setWifiResults([]); setWifiOk(false);
+    setGenieTaskQueued(false); setGenieTaskStatus('pending'); setGenieTaskAttempts(0); setGenieTaskResults([]);
   }, []);
 
   const effectiveSn = currentOnu?.sn || manualSn;
-  const wifiCapable = currentOnu ? isWifiModel(currentOnu.model) : true; // if manual, allow
-  const canApply = !!effectiveSn && !!ssid.trim() && pass.length >= 8 && wifiCapable;
+  const canApply = !!effectiveSn && !!ssid && !!pass;
+
+  // Poll background GenieACS task
+  useEffect(() => {
+    if (!genieTaskQueued || genieTaskStatus !== 'pending' || !effectiveSn) return;
+    const id = setInterval(async () => {
+      try {
+        const res = await apiCall(apiBase, `/wizard/auth/wifi/task-status?sn=${encodeURIComponent(effectiveSn)}`);
+        const data = await res.json();
+        if (data.task) {
+          setGenieTaskAttempts(data.task.attempts);
+          setGenieTaskResults(data.task.results || []);
+          if (data.task.status !== 'pending') {
+            setGenieTaskStatus(data.task.status);
+            if (data.task.status === 'success' && selectedClient) {
+              completeSession(`WiFi configurado para ${clientFullName(selectedClient)}`);
+            }
+          }
+        }
+      } catch {}
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [genieTaskQueued, genieTaskStatus, effectiveSn, apiBase, selectedClient, completeSession]);
 
   // -------------------------------------------------------------------------
   return (
@@ -293,8 +323,7 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
       {applying && (
         <div className="absolute inset-0 z-50 bg-white/80 flex flex-col items-center justify-center gap-3">
           <Loader2 className="size-8 animate-spin text-orange-400" />
-          <p className="text-sm font-medium text-gray-600">Aplicando configuración WiFi...</p>
-          <p className="text-xs text-gray-400">Configurando 2.4GHz y 5GHz</p>
+          <p className="text-sm font-medium text-gray-600">Configurando WiFi vía TR069...</p>
         </div>
       )}
 
@@ -311,7 +340,7 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
                       <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Buscar cliente</h3>
-                      <p className="text-xs text-gray-400 mt-0.5">Solo ONUs ZTE F6600P y ZTE F600P son compatibles</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Configuración WiFi vía TR069 — compatible con todos los modelos</p>
                     </div>
                     <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <FieldGroup label="Nombre completo">
@@ -390,18 +419,9 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
                     <>
                       {/* ONU info card */}
                       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
                           <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">ONU del cliente</h3>
-                          {currentOnu && (
-                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border
-                              ${isWifiModel(currentOnu.model)
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-red-50 text-red-700 border-red-200'}`}>
-                              {isWifiModel(currentOnu.model) ? '✓ Compatible WiFi' : '✗ No compatible'}
-                            </span>
-                          )}
                         </div>
-
                         {currentOnu ? (
                           <div className="p-4 grid grid-cols-2 gap-4">
                             <div>
@@ -417,7 +437,7 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
                           <div className="p-4 space-y-3">
                             <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
                               <AlertCircle className="size-3.5 flex-shrink-0" />
-                              No se encontró la ONU automáticamente (sin IP registrada o sin snapshot en SmartOLT). Ingresa el SN manualmente.
+                              ONU no encontrada automáticamente. Ingresa el SN manualmente.
                             </div>
                             <FieldGroup label="SN de la ONU">
                               <TextInput value={manualSn} onChange={setManualSn} placeholder="ZTEGC..." monospace />
@@ -426,41 +446,21 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
                         )}
                       </div>
 
-                      {/* Incompatible model warning */}
-                      {currentOnu && !isWifiModel(currentOnu.model) && (
-                        <div className="flex items-start gap-2 px-3 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-                          <AlertCircle className="size-4 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <p className="font-medium">Modelo no compatible</p>
-                            <p className="text-xs mt-0.5">El modelo <strong>{currentOnu.model}</strong> no admite configuración WiFi remota. Solo los modelos ZTE F6600P y ZTE F600P son compatibles.</p>
-                          </div>
+                      {/* WiFi config form */}
+                      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                          <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Configurar WiFi vía TR069</h3>
+                          <p className="text-xs text-gray-400 mt-0.5">GenieACS aplicará los cambios en 2.4GHz y 5GHz{effectiveSn ? ` — SN: ${effectiveSn}` : ''}</p>
                         </div>
-                      )}
-
-                      {/* WiFi form — only if compatible or manual */}
-                      {(!currentOnu || isWifiModel(currentOnu.model)) && (
-                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                          <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-                            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Nueva configuración WiFi</h3>
-                            <p className="text-xs text-gray-400 mt-0.5">Se aplicará en 2.4GHz y 5GHz ({effectiveSn ? `SN: ${effectiveSn}` : 'sin SN'})</p>
-                          </div>
-                          <div className="p-4 space-y-4">
-                            <FieldGroup label="Nombre de red (SSID) *">
-                              <TextInput value={ssid} onChange={setSsid} placeholder="Mi Red WiFi" />
-                            </FieldGroup>
-                            <FieldGroup label={`Contraseña * ${pass.length > 0 && pass.length < 8 ? '— mínimo 8 caracteres' : ''}`}>
-                              <PasswordInput value={pass} onChange={setPass} placeholder="Mínimo 8 caracteres" />
-                            </FieldGroup>
-                            {ssid && pass.length >= 8 && (
-                              <div className="p-3 bg-[#1e3a8a]/5 border border-[#1e3a8a]/15 rounded-lg text-xs text-gray-600 space-y-0.5">
-                                <p><span className="font-medium">2.4GHz SSID:</span> {ssid}</p>
-                                <p><span className="font-medium">5GHz SSID:</span> {ssid}_5G</p>
-                                <p><span className="font-medium">Contraseña:</span> {'•'.repeat(pass.length)}</p>
-                              </div>
-                            )}
-                          </div>
+                        <div className="p-4 space-y-3">
+                          <FieldGroup label="SSID (nombre de red)">
+                            <TextInput value={ssid} onChange={setSsid} placeholder="Mi Red WiFi" />
+                          </FieldGroup>
+                          <FieldGroup label="Contraseña">
+                            <PasswordInput value={pass} onChange={setPass} placeholder="Mínimo 8 caracteres" />
+                          </FieldGroup>
                         </div>
-                      )}
+                      </div>
                     </>
                   )}
                 </div>
@@ -471,13 +471,25 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
             {step === 2 && (
               <motion.div key="s2" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.18 }}>
                 <div className="space-y-4">
-                  <div className={`rounded-xl border p-4 ${wifiOk ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <div className={`rounded-xl border p-4 ${
+                    (wifiOk || genieTaskStatus === 'success') ? 'bg-emerald-50 border-emerald-200'
+                    : genieTaskQueued ? 'bg-blue-50 border-blue-200'
+                    : 'bg-amber-50 border-amber-200'
+                  }`}>
                     <div className="flex items-start gap-2 mb-3">
-                      {wifiOk
+                      {(wifiOk || genieTaskStatus === 'success')
                         ? <CheckCircle2 className="size-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                        : <AlertCircle className="size-4 text-amber-600 flex-shrink-0 mt-0.5" />}
-                      <p className={`text-sm font-semibold ${wifiOk ? 'text-emerald-800' : 'text-amber-800'}`}>
-                        {wifiOk ? 'WiFi configurado correctamente' : 'Resultado parcial o con errores'}
+                        : (genieTaskQueued && genieTaskStatus === 'pending')
+                          ? <Loader2 className="size-4 text-blue-500 animate-spin flex-shrink-0 mt-0.5" />
+                          : <AlertCircle className="size-4 text-amber-600 flex-shrink-0 mt-0.5" />}
+                      <p className={`text-sm font-semibold ${
+                        (wifiOk || genieTaskStatus === 'success') ? 'text-emerald-800'
+                        : genieTaskQueued ? 'text-blue-800'
+                        : 'text-amber-800'
+                      }`}>
+                        {(wifiOk || genieTaskStatus === 'success') ? 'WiFi configurado correctamente'
+                          : genieTaskQueued ? 'Configurando WiFi en segundo plano...'
+                          : 'Resultado parcial o con errores'}
                       </p>
                     </div>
                     <div className="ml-6 space-y-1">
@@ -485,24 +497,44 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
                     </div>
                   </div>
 
-                  {wifiOk && (
+                  {genieTaskQueued && (
+                    <div className={`rounded-lg border px-3 py-2.5 flex items-start gap-2 ${
+                      genieTaskStatus === 'pending' ? 'bg-blue-50 border-blue-200 text-blue-800'
+                      : genieTaskStatus === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-red-50 border-red-200 text-red-800'
+                    }`}>
+                      {genieTaskStatus === 'pending'
+                        ? <Loader2 className="size-4 animate-spin flex-shrink-0 mt-0.5" />
+                        : genieTaskStatus === 'success'
+                          ? <CheckCircle2 className="size-4 flex-shrink-0 mt-0.5" />
+                          : <AlertCircle className="size-4 flex-shrink-0 mt-0.5" />}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          {genieTaskStatus === 'pending'
+                            ? `Esperando registro TR069... (intento ${genieTaskAttempts}/28)`
+                            : genieTaskStatus === 'success'
+                              ? 'WiFi configurado correctamente por GenieACS'
+                              : 'No se pudo configurar WiFi automáticamente'}
+                        </p>
+                        {genieTaskResults.map((r, i) => <p key={i} className="text-xs mt-0.5 opacity-80">{r}</p>)}
+                      </div>
+                    </div>
+                  )}
+
+                  {(wifiOk || genieTaskStatus === 'success') && (
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-1.5">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Datos configurados</p>
-                      <div className="flex gap-2 text-sm">
-                        <span className="text-gray-400 w-24 flex-shrink-0">SSID 2.4GHz</span>
-                        <span className="font-medium text-gray-800">{ssid}</span>
-                      </div>
-                      <div className="flex gap-2 text-sm">
-                        <span className="text-gray-400 w-24 flex-shrink-0">SSID 5GHz</span>
-                        <span className="font-medium text-gray-800">{ssid}_5G</span>
-                      </div>
-                      <div className="flex gap-2 text-sm">
-                        <span className="text-gray-400 w-24 flex-shrink-0">Contraseña</span>
-                        <span className="font-mono text-gray-800">{pass}</span>
-                      </div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Resultado</p>
                       <div className="flex gap-2 text-sm">
                         <span className="text-gray-400 w-24 flex-shrink-0">SN ONU</span>
                         <span className="font-mono text-gray-800">{effectiveSn}</span>
+                      </div>
+                      <div className="flex gap-2 text-sm">
+                        <span className="text-gray-400 w-24 flex-shrink-0">SSID 2.4GHz</span>
+                        <span className="text-gray-800">{ssid}</span>
+                      </div>
+                      <div className="flex gap-2 text-sm">
+                        <span className="text-gray-400 w-24 flex-shrink-0">SSID 5GHz</span>
+                        <span className="text-gray-800">{ssid}_5G</span>
                       </div>
                     </div>
                   )}
@@ -540,7 +572,7 @@ export function WifiWizard({ apiBase, onClose, initialData }: WifiWizardProps) {
             <Button size="sm" disabled={!canApply || applying} onClick={handleApply}
               className="bg-[#f5831f] hover:bg-[#f5831f]/90 text-white font-semibold">
               {applying ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <Wifi className="size-3.5 mr-1.5" />}
-              Aplicar WiFi
+              Configurar WiFi
             </Button>
           )}
         </div>

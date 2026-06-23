@@ -443,6 +443,9 @@ export function FotosWizard({ apiBase, onClose, initialData }: FotosWizardProps)
                         onUploadComplete={count => {
                           if (!completedSessionRef.current && count >= 1 && selectedClient) {
                             completedSessionRef.current = true;
+                            logStep('fotos-upload', 'Fotos subidas', 'ok', {
+                              outputData: { count, clientName: clientFullName(selectedClient) },
+                            });
                             completeSession(`${count} foto${count !== 1 ? 's' : ''} subida${count !== 1 ? 's' : ''} para ${clientFullName(selectedClient)}`);
                           }
                         }}

@@ -1,11 +1,11 @@
-import { Activity, ImageIcon, Wifi, Server } from 'lucide-react';
+import { Activity, ImageIcon, Wifi, Server, Tv2 } from 'lucide-react';
 
 // SVG import (favicon)
 import favicon from '../../public/favicon.svg';
 
 interface EmptyChatProps {
   onSelectQuery?: (query: string) => void;
-  onStartWizard?: (type: 'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos') => void;
+  onStartWizard?: (type: 'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos' | 'link-tv' | 'unlink-tv') => void;
   disabled?: boolean;
 }
 
@@ -52,6 +52,20 @@ export function EmptyChat({ onSelectQuery, onStartWizard, disabled = false }: Em
       query: 'monitoreo cliente',
       description: 'Consulta el estado y métricas de un cliente en tiempo real',
       wizardType: 'monitor' as const,
+    },
+    {
+      icon: Tv2,
+      title: 'Vincular sistemas de TV',
+      query: 'vincular tv cliente',
+      description: 'Asocia decodificadores y dispositivos STB al cliente por IP',
+      wizardType: 'link-tv' as const,
+    },
+    {
+      icon: Tv2,
+      title: 'Desvincular IPTV',
+      query: 'desvincular tv cliente',
+      description: 'Retira decodificadores IPTV del cliente y del usuario del sistema',
+      wizardType: 'unlink-tv' as const,
     },
   ];
 

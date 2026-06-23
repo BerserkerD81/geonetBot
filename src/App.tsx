@@ -13,7 +13,10 @@ import { WifiWizard } from './components/WifiWizard';
 import { MonitorWizard } from './components/MonitorWizard';
 import { BajaClienteWizard } from './components/BajaClienteWizard';
 import { FotosWizard } from './components/FotosWizard';
+import { LinkTvWizard } from './components/LinkTvWizard';
+import { UnlinkTvWizard } from './components/UnlinkTvWizard';
 import { WizardHistoryPanel } from './components/WizardHistoryPanel';
+import { WizardReplayViewer } from './components/WizardReplayViewer';
 import { SearchModal } from './components/SearchModal';
 import { ScrollArea } from './components/ui/scroll-area';
 import { Search, PanelLeft, Loader2, History } from 'lucide-react';
@@ -115,9 +118,10 @@ function ChatApp() {
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showUserPanel, setShowUserPanel] = useState(false);
-  const [wizardMode, setWizardMode] = useState<'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos' | null>(null);
+  const [wizardMode, setWizardMode] = useState<'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos' | 'link-tv' | 'unlink-tv' | null>(null);
   const [wizardInitialData, setWizardInitialData] = useState<Record<string, any> | null>(null);
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [replaySessionId, setReplaySessionId] = useState<string | null>(null);
   
   // Scroll & Highlights
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -357,6 +361,9 @@ function ChatApp() {
     setAnimatingMessageId(null);
     setShowAdminPanel(false);
     setShowUserPanel(false);
+    setWizardMode(null);
+    setWizardInitialData(null);
+    setReplaySessionId(null);
     navigate('/chat');
     if (window.innerWidth < 768) {
       setSidebarCollapsed(true);
@@ -939,12 +946,22 @@ function ChatApp() {
     void preloadAllHistories();
   }, [isAdmin, openUserHistoryAsChat]);
 
-  // Handle wizard resume from history panel
+  // Handle wizard resume from history panel or replay viewer
   const handleWizardResume = useCallback((type: string, resumeData: Record<string, any>) => {
     setShowHistoryPanel(false);
+    setReplaySessionId(null);
+    setActiveChat(null);
+    navigate('/chat');
     setWizardInitialData(resumeData);
-    setWizardMode(type as 'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos');
-  }, []);
+    setWizardMode(type as 'auth' | 'change-onu' | 'wifi' | 'monitor' | 'baja' | 'fotos' | 'link-tv' | 'unlink-tv');
+  }, [navigate]);
+
+  // Open replay viewer from sidebar session click
+  const handleOpenReplay = useCallback((sessionId: string) => {
+    setReplaySessionId(sessionId);
+    setActiveChat(null);
+    navigate('/chat');
+  }, [navigate]);
 
   // -------------------------------------------------------------------------
   // 7. EFECTOS UI: SCROLL INFINITO, AUTO-SCROLL Y SINCRONIZACIÓN DE RUTAS
@@ -1230,6 +1247,8 @@ function ChatApp() {
               onOpenSearch={useCallback(() => setSearchOpen(true), [])}
               onOpenAdmin={useCallback(() => setShowAdminPanel(true), [])}
               onOpenProfile={useCallback(() => { if (!isAdmin) setShowUserPanel(true); }, [isAdmin])}
+              apiBase={API_BASE}
+              onOpenReplay={handleOpenReplay}
             />
             <div className="flex-1 flex flex-col min-w-0 relative">
               <AnimatePresence>
@@ -1242,7 +1261,7 @@ function ChatApp() {
                     exit={{ x: '100%', opacity: 0 }}
                     transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
                   >
-                    <AdminUserPanel 
+                    <AdminUserPanel
                       onClose={() => setShowAdminPanel(false)}
                       // @ts-expect-error: Propiedad onOpenUserHistory aún no definida en AdminUserPanel
                       onOpenUserHistory={openUserHistoryAsChat}
@@ -1344,6 +1363,27 @@ function ChatApp() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              {/* Wizard Replay Viewer */}
+              <AnimatePresence>
+                {replaySessionId && (
+                  <motion.div
+                    key="replay-viewer"
+                    className="absolute inset-0 z-30 overflow-hidden"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 16 }}
+                    transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <WizardReplayViewer
+                      sessionId={replaySessionId}
+                      apiBase={API_BASE}
+                      isAdmin={isAdmin}
+                      onContinue={handleWizardResume}
+                      onClose={() => setReplaySessionId(null)}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               {/* Messages Area */}
               {currentChat ? (
                 <ScrollArea className="flex-1 overflow-y-auto bg-gray-50 pt-14" ref={scrollViewportRef}>
@@ -1436,6 +1476,16 @@ function ChatApp() {
                           initialData={wizardInitialData as any} />
                       </motion.div>
                     )}
+                    {wizardMode === 'link-tv' && (
+                      <motion.div key="link-tv-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                        <LinkTvWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }} />
+                      </motion.div>
+                    )}
+                    {wizardMode === 'unlink-tv' && (
+                      <motion.div key="unlink-tv-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                        <UnlinkTvWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }} />
+                      </motion.div>
+                    )}
                   </AnimatePresence>
                 </div>
               )}
@@ -1476,6 +1526,8 @@ function ChatApp() {
               onOpenSearch={useCallback(() => setSearchOpen(true), [])}
               onOpenAdmin={useCallback(() => setShowAdminPanel(true), [])}
               onOpenProfile={useCallback(() => { if (!isAdmin) setShowUserPanel(true); }, [isAdmin])}
+              apiBase={API_BASE}
+              onOpenReplay={handleOpenReplay}
             />
             <div className="flex-1 flex flex-col min-w-0 relative">
               <AnimatePresence>
@@ -1488,7 +1540,7 @@ function ChatApp() {
                     exit={{ x: '100%', opacity: 0 }}
                     transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
                   >
-                    <AdminUserPanel 
+                    <AdminUserPanel
                       onClose={() => setShowAdminPanel(false)}
                       // @ts-expect-error: Propiedad onOpenUserHistory aún no definida en AdminUserPanel
                       onOpenUserHistory={openUserHistoryAsChat}
@@ -1588,6 +1640,27 @@ function ChatApp() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              {/* Wizard Replay Viewer */}
+              <AnimatePresence>
+                {replaySessionId && (
+                  <motion.div
+                    key="replay-viewer"
+                    className="absolute inset-0 z-30 overflow-hidden"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 16 }}
+                    transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <WizardReplayViewer
+                      sessionId={replaySessionId}
+                      apiBase={API_BASE}
+                      isAdmin={isAdmin}
+                      onContinue={handleWizardResume}
+                      onClose={() => setReplaySessionId(null)}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <div className="flex-1 overflow-y-auto bg-gray-50 pt-14 relative">
                 <EmptyChat onSelectQuery={handleSendMessage} onStartWizard={setWizardMode} disabled={isAwaitingResponse} />
                 <AnimatePresence>
@@ -1625,6 +1698,16 @@ function ChatApp() {
                     <motion.div key="fotos-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                       <FotosWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }}
                         initialData={wizardInitialData as any} />
+                    </motion.div>
+                  )}
+                  {wizardMode === 'link-tv' && (
+                    <motion.div key="link-tv-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                      <LinkTvWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }} />
+                    </motion.div>
+                  )}
+                  {wizardMode === 'unlink-tv' && (
+                    <motion.div key="unlink-tv-wizard" className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                      <UnlinkTvWizard apiBase={API_BASE} onClose={() => { setWizardMode(null); setWizardInitialData(null); }} />
                     </motion.div>
                   )}
                 </AnimatePresence>
